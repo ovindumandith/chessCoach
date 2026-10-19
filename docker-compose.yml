@@ -1,0 +1,66 @@
+name: chesscoach
+
+x-app-env: &app-env
+  APP_ENV: ${APP_ENV:-development}
+  APP_SECRET_KEY: ${APP_SECRET_KEY:-replace_me}
+  DATABASE_URL: postgresql+psycopg://chesscoach:${POSTGRES_PASSWORD:-chesscoach}@db:5432/chesscoach
+  STORAGE_DIR: /data/uploads
+  PGN_MAX_UPLOAD_MB: ${PGN_MAX_UPLOAD_MB:-25}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+services:
+  db:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: chesscoach
+      POSTGRES_USER: chesscoach
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chesscoach}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chesscoach -d chesscoach"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: { context: ., dockerfile: docker/backend.Dockerfile, target: backend }
+    environment: *app-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  backend:
+    build: { context: ., dockerfile: docker/backend.Dockerfile, target: backend }
+    environment: *app-env
+    volumes:
+      - uploads:/data/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: { context: ., dockerfile: docker/backend.Dockerfile, target: worker }
+    environment:
+      <<: *app-env
+      STOCKFISH_PATH: /usr/games/stockfish
+      STOCKFISH_DEPTH: ${STOCKFISH_DEPTH:-16}
+      STOCKFISH_THREADS: ${STOCKFISH_THREADS:-2}
+      STOCKFISH_HASH_MB: ${STOCKFISH_HASH_MB:-512}
+      ANALYSIS_MAX_CONCURRENT_GAMES: ${ANALYSIS_MAX_CONCURRENT_GAMES:-2}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  # frontend: added in Phase 8 (React + TypeScript).
+
+volumes:
+  pgdata:
+  uploads:

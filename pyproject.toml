@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chesscoach"
+version = "0.1.0"
+description = "ChessMentor AI - personalized chess coaching through engine-grounded LLMs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.120.4",
+    "uvicorn[standard]==0.38.0",
+    "pydantic==2.12.3",
+    "pydantic-settings==2.11.0",
+    "sqlalchemy==2.0.44",
+    "alembic==1.17.1",
+    "psycopg[binary]==3.2.12",
+    "chess==1.11.2",
+    "python-multipart==0.0.20",
+    "pyyaml==6.0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "httpx==0.28.1",
+    "ruff==0.14.3",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "engine: tests that require a local Stockfish binary (STOCKFISH_PATH)",
+    "postgres: tests that require a PostgreSQL database",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
