@@ -30,6 +30,21 @@ The source of truth is `src/chesscoach/db/models.py`. Schema changes go through 
 | `exercise_attempts` | A student's attempt | `exercise_id`, `student_id`, `submitted_move`, `is_correct`, `hints_used`, `time_taken_ms`, `completed_at` |
 | `audit_events` | Sensitive actions | `actor_user_id`, `action`, `entity_type`, `entity_id`, `details`, `created_at` |
 
+## `move_analyses` conventions
+
+- One row per **student** move per analysis run. `ply` is the 1-based half-move number.
+- `eval_*_cp` and `eval_*_mate` are from the student's side. For any one evaluation, exactly one of the pair is set.
+- `eval_after_mate = 0` means the student's move delivered checkmate.
+- `best_move_loss_cp` is null whenever either evaluation is a mate score. `win_prob_loss` (0–1) is always set.
+- `features` holds:
+  - `played_best`, `critical`, `mate_transition`
+  - `only_move_gap_wp`, `legal_moves`
+  - `material_balance`, `in_check`, `is_capture`, `gives_check`
+  - `pv_san`, `second_best_mate`, `terminal`
+- Two-pass analysis:
+  - A `critical` run's `configuration` holds `parent_run_id`, `plies` and `depth`.
+  - Every run's `configuration` records `analysis_version`, `scores_version`, `phase_rules_version`, `depth`, `multipv`, `critical_wp_loss`, `engine_options` and `student_color`.
+
 ## Status enums
 
 - `ImportStatus`: `pending`, `completed`, `completed_with_errors`, `failed`

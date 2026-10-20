@@ -51,9 +51,9 @@ services:
     build: { context: ., dockerfile: docker/backend.Dockerfile, target: worker }
     environment:
       <<: *app-env
-      STOCKFISH_PATH: /usr/games/stockfish
+      STOCKFISH_PATH: /usr/local/bin/stockfish
       STOCKFISH_DEPTH: ${STOCKFISH_DEPTH:-16}
-      STOCKFISH_THREADS: ${STOCKFISH_THREADS:-2}
+      STOCKFISH_THREADS: ${STOCKFISH_THREADS:-1}
       STOCKFISH_HASH_MB: ${STOCKFISH_HASH_MB:-512}
       ANALYSIS_MAX_CONCURRENT_GAMES: ${ANALYSIS_MAX_CONCURRENT_GAMES:-2}
     depends_on:

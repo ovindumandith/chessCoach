@@ -6,7 +6,7 @@ ChessMentor AI is a personalized chess coaching platform. It analyzes students' 
 - Rules for contributors and agents: [`AGENTS.md`](AGENTS.md)
 - Design documents: [`docs/`](docs/), including the architecture, data model, research plan and implementation plan
 
-**Status:** Phases 1–2 are done (foundation, students, PGN import). See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+**Status:** Phases 1–3 are done (foundation, students, PGN import, Stockfish analysis). See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start: local, without Docker
 
@@ -42,7 +42,7 @@ This starts:
 - `db`: PostgreSQL 16
 - `migrate`: runs `alembic upgrade head` once
 - `backend`: the API on port 8000
-- `worker`: Stockfish installed, analysis loop arrives in Phase 3
+- `worker`: the analysis worker, running official Stockfish 18 (checked by SHA-256)
 
 The volumes `pgdata` and `uploads` persist data. Never run `docker compose down -v` unless you mean to delete all student data.
 
@@ -62,7 +62,22 @@ curl "localhost:8000/api/v1/students/<id>/games?needs_mapping=true"
 # Confirm one of them
 curl -X PATCH localhost:8000/api/v1/games/<game_id>/mapping -H "Content-Type: application/json" \
   -d '{"student_color": "white"}'
+
+# Queue Stockfish analysis (needs a confirmed color), then poll and read the results
+curl -X POST localhost:8000/api/v1/games/<game_id>/analyze
+curl localhost:8000/api/v1/analysis-jobs/<job_id>
+curl localhost:8000/api/v1/games/<game_id>/analysis
 ```
+
+## Running the analysis worker locally
+
+Without Docker, set `STOCKFISH_PATH` in `.env` and run:
+
+```bash
+python -m chesscoach.analysis.worker
+```
+
+The worker runs one Stockfish process. For more throughput, run more worker processes (`docker compose up --scale worker=2`). On PostgreSQL, jobs are claimed with `SKIP LOCKED`, so two workers never take the same game. Keep `STOCKFISH_THREADS=1` for reproducible research runs.
 
 Until Phase 8 adds authentication, requests run as a development coach account. To act as another existing user in development, send the `X-Dev-User-Email` header. This stub refuses to run when `APP_ENV=production`.
 
@@ -70,7 +85,7 @@ Until Phase 8 adds authentication, requests run as a development coach account. 
 
 ```bash
 pytest                 # unit + integration; needs no Docker, LLM key or Stockfish
-pytest -m engine       # Stockfish-dependent tests (Phase 3+), need STOCKFISH_PATH
+pytest -m engine       # only the real-Stockfish tests (skipped if STOCKFISH_PATH is not set)
 ruff check src tests && ruff format --check src tests
 ```
 

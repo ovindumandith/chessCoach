@@ -6,7 +6,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from chesscoach.db.enums import Color, GameResult, MappingStatus
+from chesscoach.db.enums import AnalysisPass, Color, GamePhase, GameResult, JobStatus, MappingStatus
 
 
 class ORMModel(BaseModel):
@@ -114,3 +114,60 @@ class ImportReportOut(BaseModel):
     rejected: int
     file_warnings: list[str]
     games: list[GameImportItemOut]
+
+
+# --------------------------------------------------------------------------- analysis
+
+
+class AnalyzeRequest(BaseModel):
+    force: bool = Field(default=False, description="Re-run even if a completed analysis exists.")
+
+
+class AnalysisJobOut(ORMModel):
+    id: uuid.UUID
+    game_id: uuid.UUID
+    pass_type: AnalysisPass
+    status: JobStatus
+    attempts: int
+    analysis_version: str
+    engine_name: str | None
+    engine_version: str | None
+    configuration: dict[str, Any]
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    error_message: str | None
+
+
+class MoveAnalysisOut(ORMModel):
+    """Engine evidence for one student move. Evaluations are from the student's view;
+    a mate value of 0 after the move means the student delivered checkmate."""
+
+    ply: int
+    fen_before: str
+    fen_after: str
+    uci_move: str
+    san_move: str
+    phase: GamePhase
+    eval_before_cp: int | None
+    eval_after_cp: int | None
+    eval_before_mate: int | None
+    eval_after_mate: int | None
+    best_move_uci: str | None
+    second_best_cp: int | None
+    principal_variation: list[str]
+    best_move_loss_cp: int | None
+    win_prob_loss: float | None
+    search_depth: int | None
+    clock_before_ms: int | None
+    clock_after_ms: int | None
+    features: dict[str, Any]
+
+
+class GameAnalysisOut(BaseModel):
+    game_id: uuid.UUID
+    student_color: Color | None
+    baseline: AnalysisJobOut
+    moves: list[MoveAnalysisOut]
+    critical: AnalysisJobOut | None
+    critical_moves: list[MoveAnalysisOut]

@@ -19,8 +19,19 @@ class Settings(BaseSettings):
 
     stockfish_path: str = "/usr/games/stockfish"
     stockfish_depth: int = Field(default=16, ge=1, le=60)
-    stockfish_threads: int = Field(default=2, ge=1)
+    stockfish_threads: int = Field(default=1, ge=1)  # >1 makes search non-deterministic
     stockfish_hash_mb: int = Field(default=512, ge=16)
+    # Pass 2: deeper re-analysis of critical positions.
+    stockfish_critical_depth: int = Field(default=22, ge=1, le=60)
+    analysis_multipv: int = Field(default=2, ge=1, le=5)
+    # A student move is "critical" if it loses at least this much win probability (0-1),
+    # or involves a mate transition.
+    analysis_critical_wp_loss: float = Field(default=0.10, ge=0.0, le=1.0)
+    analysis_critical_enabled: bool = True
+    analysis_max_attempts: int = Field(default=3, ge=1)
+    worker_poll_seconds: float = Field(default=2.0, gt=0)
+    # A running job not finished within this time is assumed abandoned (worker crash).
+    worker_stale_after_seconds: int = Field(default=1800, ge=60)
 
     llm_provider: str = "openai_compatible"
     llm_api_key: str = ""

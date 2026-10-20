@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from chesscoach import __version__
-from chesscoach.api.routes import games, health, students
+from chesscoach.api.routes import analysis, games, health, students
 from chesscoach.core.config import get_settings
 from chesscoach.core.errors import DomainError
 
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(students.router, prefix=API_PREFIX)
     app.include_router(games.router, prefix=API_PREFIX)
+    app.include_router(analysis.router, prefix=API_PREFIX)
     return app
 
 
