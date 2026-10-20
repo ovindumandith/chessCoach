@@ -17,11 +17,19 @@ from dataclasses import dataclass, field
 import chess
 
 from chesscoach.analysis.scores import Evaluation, MateTransition, win_probability
-from chesscoach.classification.motifs import MOTIFS_VERSION, detect_allowed, detect_missed
+from chesscoach.classification.motifs import (
+    MOTIFS_VERSION,
+    VALUES,
+    captured_value,
+    detect_allowed,
+    detect_missed,
+)
 from chesscoach.classification.taxonomy import UNCLASSIFIED
 from chesscoach.db.enums import EvidenceType, GamePhase, OpportunityOutcome
 
-CLASSIFIER_VERSION = "classifier-v1"
+# v2: a missed capture is not reported when the student's own move captured at least as
+# much material (e.g. ...Bxd1 taking a queen in Legal's Mate).
+CLASSIFIER_VERSION = "classifier-v2"
 
 # Win-probability thresholds (0-1 scale). Bands follow Lichess's accuracy categories
 # (inaccuracy/mistake/blunder at 10/20/30 points on its -100..100 winning-chances scale).
@@ -150,7 +158,16 @@ def classify_move(m: MoveEvidence, ctx: GameContext) -> Classification:
 def _missed_motifs(m, out, base, wp_loss, transition, played_best) -> None:
     motifs = detect_missed(m.fen_before, m.best_move_uci, m.eval_before.mate)
     gap = m.features.get("only_move_gap_wp")
+    played_capture = captured_value(m.fen_before, m.uci_move)
     for motif in motifs:
+        # Grabbing at least as much material elsewhere is not "missing free material"
+        # (e.g. ...Bxd1 taking a queen in Legal's Mate instead of ...dxe5).
+        if (
+            motif.subskill == "hanging_pieces"
+            and played_capture
+            >= VALUES[chess.Piece.from_symbol(motif.details["captured"]).piece_type]
+        ):
+            continue
         is_mate = motif.subskill == "mating_patterns"
         needed = is_mate or (gap is not None and gap >= THRESHOLDS["opportunity_min_gap"])
         if is_mate:
@@ -232,7 +249,7 @@ def _inferences(m, ctx, out, base, band, wp_before, played_best) -> None:
         out.observations.append(
             ObservationDraft(
                 "endgame_technique",
-                _endgame_type(m.fen_before),
+                endgame_type(m.fen_before),
                 EvidenceType.SKILL_INFERENCE,
                 m.win_prob_loss,
                 CONFIDENCE["low"],
@@ -297,18 +314,22 @@ def _inferences(m, ctx, out, base, band, wp_before, played_best) -> None:
 
 
 def _time_trouble(m: MoveEvidence, ctx: GameContext) -> bool:
-    if m.clock_before_ms is None:
+    return is_time_trouble(m.clock_before_ms, ctx.base_time_seconds)
+
+
+def is_time_trouble(clock_before_ms: int | None, base_time_seconds: int | None) -> bool:
+    """Shared with profiling so error counts and exposure denominators use one rule."""
+    if clock_before_ms is None:
         return False
-    seconds = m.clock_before_ms / 1000
+    seconds = clock_before_ms / 1000
     if seconds < THRESHOLDS["time_trouble_seconds"]:
         return True
     return bool(
-        ctx.base_time_seconds
-        and seconds < THRESHOLDS["time_trouble_fraction"] * ctx.base_time_seconds
+        base_time_seconds and seconds < THRESHOLDS["time_trouble_fraction"] * base_time_seconds
     )
 
 
-def _endgame_type(fen: str) -> str:
+def endgame_type(fen: str) -> str:
     board = chess.Board(fen)
     non_pawn = {
         pt

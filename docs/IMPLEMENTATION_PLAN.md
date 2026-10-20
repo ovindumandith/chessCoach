@@ -8,7 +8,7 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 | 2 | Student management and PGN import (aliases, mapping, deduplication, report) | ✅ |
 | 3 | Stockfish integration, job worker, persisted move analysis (two-pass) | ✅ |
 | 4 | Skill taxonomy, candidate detectors, coach review endpoints | ✅ |
-| 5 | Longitudinal profiles, Beta-Binomial smoothing, priority heuristic | ⏳ |
+| 5 | Longitudinal profiles, Beta-Binomial smoothing, priority heuristic | ✅ |
 | 6 | LLM adapter, evidence retrieval, structured lessons, validation, fallback | ⏳ |
 | 7 | Exercises and attempt tracking | ⏳ |
 | 8 | Frontend, authentication (JWT + roles), authorization hardening | ⏳ |
@@ -109,8 +109,52 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 - Opportunity rows exist only for "missed" motifs. For "allowed" motifs, the denominator in Phase 5 is the number of analyzed moves.
 - All thresholds are untested defaults. The coach-review data is the benchmark for tuning them.
 
-## Phase 5 — Longitudinal profiles (next)
+## Phase 5 — Longitudinal profiles
 
-- Aggregate per skill: opportunities, errors, distinct games, recurrence and severity. Reviewed findings outweigh candidates, and rejected ones are excluded.
-- Beta-Binomial smoothed rates, profile states (insufficient evidence, emerging, recurring), and a versioned priority heuristic.
-- Versioned snapshots with incremental updates. `GET /students/{id}/profile`.
+- `profiling/aggregator.py` (`profile-v1`, pure functions). Each skill is measured through up to two **channels**, never mixed in one ratio:
+  - *detected*: Phase 4 opportunities, i.e. tactics available **and needed**. An error is a missed one.
+  - *exposure*: moves in the relevant context. That's every move for allowed tactics and for `unclassified`, endgame moves of the matching type, moves while winning, only-move defensive positions, and time-trouble moves. Forced moves are excluded.
+  - The context rules are shared with the classifier (`is_time_trouble`, `endgame_type`), so error counts and denominators always agree.
+- **Rates:** Beta-Binomial `p = (e+a)/(n+a+b)`, with priors per channel (detected 1/2, exposure 0.5/24.5). Confirmed or corrected findings count 1, candidates 0.5, rejected 0. A rejected or relabelled missed motif also removes its opportunity.
+- **Priority:** `P = E×S×R×C`.
+  - E is the rate relative to the channel's reference.
+  - S is mean severity relative to 0.30.
+  - R is distinct games affected, capped at 4.
+  - C is the data share of the posterior, `n/(n+a+b)`.
+  - Only channels with data drive the score, because an empty channel's prior mean must not outrank real data.
+  - Skills labelled only by coaches use `0.5×S×R`.
+  - `unclassified` is never ranked. It's a review queue, not a trainable skill.
+- **States:**
+  - *recurring weakness*: 3 or more games and E ≥ 0.3
+  - *emerging pattern*: 2 or more games
+  - *insufficient evidence*: a single affected game, or too little data
+  - *no issue detected*: at least 3 games and 5 exposures with no errors
+- Each skill summary also records: `provisional` (mostly unreviewed), `needs_diagnostic` (some channel has fewer than 5 observations, so the exploration rule applies), recent errors, the change from the previous version, and up to 5 example observations, one per game, for Phase 6 retrieval.
+- **Snapshots** (`profile_snapshots` with skill rows):
+  - A fingerprint over all evidence and reviews means a new version is created only when something changed.
+  - History is kept.
+  - The worker rebuilds after each classification.
+  - `cutoff_date` builds use only earlier games, for research hygiene.
+- **Classifier v2:**
+  - A missed capture is not reported if the student's own move captured at least as much. Found on Legal's Mate, where …Bxd1 takes the queen.
+  - **Coach reviews carry forward across classifier versions**, matched on ply, skill and evidence type, so they survive both version bumps and re-analysis.
+  - The weaknesses list shows the current version only.
+  - `python -m chesscoach.classification.reclassify` reclassifies everything and rebuilds profiles.
+- API:
+  - `GET /students/{id}/profile` returns skills ordered by priority with unranked ones last, plus a `stale` flag.
+  - `POST /students/{id}/profile/rebuild` accepts an optional `cutoff_date`.
+  - `GET /students/{id}/profile/history`
+- Verified end to end on PostgreSQL with real Stockfish 18 over four trap games. Mating patterns came out as a recurring weakness across 3 games: one missed mate and two allowed mates.
+
+### Known limitations and Phase 6 inputs
+
+- Every parameter is an untested default. The cutoff snapshots exist so predictive validity can be measured in Phase 9.
+- Exposure rates for allowed tactics use every move as the denominator, which is coarse. A "had a piece that could be hung" denominator would be sharper.
+- Exercise accuracy enters profiles in Phase 7. Until then the profile reflects game evidence only.
+
+## Phase 6 — LLM coaching (next)
+
+- Provider abstraction (OpenAI-compatible and Anthropic adapters, plus a mock), configured through env.
+- Evidence retrieval from the latest profile: the top actionable skills and 2–5 example positions from different games.
+- Versioned prompt `prompts/chess_coach_v1.txt` and Pydantic output.
+- Chess validation of the output (game ownership, FEN and ply match, legal moves, engine claims), with a deterministic template fallback.

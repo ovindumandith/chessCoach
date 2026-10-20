@@ -191,3 +191,33 @@ def test_time_trouble_relative_to_base_time():
 )
 def test_parse_base_time(tc, base):
     assert parse_base_time(tc) == base
+
+
+LEGAL_MATE_BEFORE_BXD1 = "rn1qkbnr/ppp2p1p/3p2p1/4N3/2B1P1b1/2N5/PPPP1PPP/R1BQK2R b KQkq - 0 5"
+
+
+def test_bigger_capture_is_not_missing_free_material():
+    # Legal's Mate: engine prefers ...dxe5 (pawn takes knight); the student played ...Bxd1,
+    # taking the QUEEN. That is not "missing a hanging piece" (it allowed mate instead).
+    m = ev(
+        fen_before=LEGAL_MATE_BEFORE_BXD1,
+        uci_move="g4d1",
+        best_move_uci="d6e5",
+        win_prob_loss=0.3,
+        features={"only_move_gap_wp": 0.3},
+    )
+    assert not any(
+        o.subskill_code == "hanging_pieces" for o in classify_move(m, NO_CTX).observations
+    )
+
+
+def test_smaller_capture_still_misses_free_material():
+    # Same position, but the student captured nothing: missing ...dxe5 is reported.
+    m = ev(
+        fen_before=LEGAL_MATE_BEFORE_BXD1,
+        uci_move="b8c6",
+        best_move_uci="d6e5",
+        win_prob_loss=0.3,
+        features={"only_move_gap_wp": 0.3},
+    )
+    assert any(o.subskill_code == "hanging_pieces" for o in classify_move(m, NO_CTX).observations)

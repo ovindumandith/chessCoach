@@ -30,7 +30,7 @@ flowchart TD
 1. **Import.** The PGN is stored under its SHA-256 key. Each game is parsed, validated, mapped to a student through aliases, deduplicated by game hash, and persisted. An import report is returned.
 2. **Analyze.** A `POST /games/{id}/analyze` request creates a queued `analysis_runs` row. A worker claims it (`SELECT … FOR UPDATE SKIP LOCKED` on PostgreSQL) and writes `move_analyses`. All scores are normalized to the student's point of view.
 3. **Classify.** When the final analysis pass completes, the worker calls `classification`. It turns move evidence into candidate `weakness_observations` and `skill_opportunities`, tagged with `classifier_version`. Coaches confirm, reject or correct the candidates.
-4. **Profile.** Observations, preferring reviewed ones, are aggregated into a new `student_skill_profiles` snapshot version.
+4. **Profile.** After each classification, the worker rebuilds the profile. Weighted observations and opportunities become a new `profile_snapshots` version, created only if the evidence fingerprint changed. Coaches can rebuild after reviewing.
 5. **Coach.** The latest profile and 2–5 representative positions go into a versioned prompt. The LLM output is validated with Pydantic and then with chess and database checks, and stored as a `coaching_session`.
 6. **Practice.** Exercises are drawn from analyzed positions, and attempts are recorded.
 

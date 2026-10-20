@@ -47,6 +47,7 @@ class ClassifyResult:
     observations: int
     opportunities: int
     preserved_reviewed: int
+    carried_reviews: int = 0
     classifier_version: str = CLASSIFIER_VERSION
 
 
@@ -124,6 +125,8 @@ def classify_game(db: Session, game_id: uuid.UUID, *, actor: User | None = None)
                 )
             )
 
+    carry = _prior_version_reviews(db, game.id)
+
     db.execute(
         delete(WeaknessObservation).where(
             WeaknessObservation.game_id == game.id,
@@ -139,7 +142,7 @@ def classify_game(db: Session, game_id: uuid.UUID, *, actor: User | None = None)
     )
 
     ctx = GameContext(base_time_seconds=parse_base_time(game.time_control))
-    n_obs = n_opp = 0
+    n_obs = n_opp = n_carried = 0
     for move in moves:
         result = classify_move(_evidence(move), ctx)
         for draft in result.observations:
@@ -149,21 +152,26 @@ def classify_game(db: Session, game_id: uuid.UUID, *, actor: User | None = None)
                 in reviewed_keys
             ):
                 continue
-            db.add(
-                WeaknessObservation(
-                    student_id=game.student_id,
-                    game_id=game.id,
-                    move_analysis_id=move.id,
-                    skill_code=draft.skill_code,
-                    subskill_code=draft.subskill_code,
-                    evidence_type=draft.evidence_type,
-                    severity=round(draft.severity, 6),
-                    confidence=draft.confidence,
-                    classifier_version=CLASSIFIER_VERSION,
-                    taxonomy_version=taxonomy.version,
-                    details={**draft.details, "ply": move.ply, **versions()},
-                )
+            obs = WeaknessObservation(
+                student_id=game.student_id,
+                game_id=game.id,
+                move_analysis_id=move.id,
+                skill_code=draft.skill_code,
+                subskill_code=draft.subskill_code,
+                evidence_type=draft.evidence_type,
+                severity=round(draft.severity, 6),
+                confidence=draft.confidence,
+                classifier_version=CLASSIFIER_VERSION,
+                taxonomy_version=taxonomy.version,
+                details={**draft.details, "ply": move.ply, **versions()},
             )
+            prior = carry.get(
+                (move.ply, draft.skill_code, draft.subskill_code, draft.evidence_type.value)
+            )
+            if prior is not None:
+                _apply_prior_review(obs, prior)
+                n_carried += 1
+            db.add(obs)
             n_obs += 1
         for opp in result.opportunities:
             db.add(
@@ -198,6 +206,7 @@ def classify_game(db: Session, game_id: uuid.UUID, *, actor: User | None = None)
         observations=n_obs,
         opportunities=n_opp,
         preserved_reviewed=len(reviewed),
+        carried_reviews=n_carried,
     )
 
 
@@ -227,7 +236,11 @@ def list_weaknesses(
         select(WeaknessObservation, MoveAnalysis, Game)
         .join(MoveAnalysis, MoveAnalysis.id == WeaknessObservation.move_analysis_id)
         .join(Game, Game.id == WeaknessObservation.game_id)
-        .where(WeaknessObservation.student_id == student_id)
+        .where(
+            WeaknessObservation.student_id == student_id,
+            # Older-version rows are kept as history but are not current findings.
+            WeaknessObservation.classifier_version == CLASSIFIER_VERSION,
+        )
     )
     if skill_code:
         query = query.where(WeaknessObservation.skill_code == skill_code)
@@ -330,6 +343,65 @@ def review_observation(
 
 
 # --------------------------------------------------------------------------- helpers
+
+
+def _prior_version_reviews(db: Session, game_id: uuid.UUID) -> dict[tuple, WeaknessObservation]:
+    """Coach reviews made under OTHER classifier versions, keyed by what the classifier
+    originally said: (ply, skill, subskill, evidence type).
+
+    Keyed by ply rather than move_analysis_id so reviews also survive a forced re-analysis.
+    The most recent review of a finding wins.
+    """
+    rows = db.scalars(
+        select(WeaknessObservation)
+        .where(
+            WeaknessObservation.game_id == game_id,
+            WeaknessObservation.classifier_version != CLASSIFIER_VERSION,
+            WeaknessObservation.review_status != ReviewStatus.CANDIDATE,
+        )
+        .order_by(WeaknessObservation.reviewed_at.asc().nulls_first())
+    ).all()
+    carry: dict[tuple, WeaknessObservation] = {}
+    for obs in rows:
+        ply = obs.details.get("ply")
+        if ply is None:
+            continue
+        original = obs.details.get("original")
+        if original:
+            key = (
+                ply,
+                original["skill_code"],
+                original["subskill_code"],
+                original["evidence_type"],
+            )
+        else:
+            key = (ply, obs.skill_code, obs.subskill_code, obs.evidence_type.value)
+        carry[key] = obs
+    return carry
+
+
+def _apply_prior_review(obs: WeaknessObservation, prior: WeaknessObservation) -> None:
+    """Re-apply a coach's earlier decision to the same finding from a new classifier."""
+    obs.review_status = prior.review_status
+    obs.reviewed_by = prior.reviewed_by
+    obs.reviewed_at = prior.reviewed_at
+    obs.review_note = prior.review_note
+    details = {
+        **obs.details,
+        "review_carried_from": {
+            "observation_id": str(prior.id),
+            "classifier_version": prior.classifier_version,
+        },
+    }
+    if prior.review_status == ReviewStatus.CORRECTED:
+        details["original"] = {
+            "skill_code": obs.skill_code,
+            "subskill_code": obs.subskill_code,
+            "evidence_type": obs.evidence_type.value,
+        }
+        obs.skill_code = prior.skill_code
+        obs.subskill_code = prior.subskill_code
+    obs.details = details
 
 
 def _run_moves(db: Session, run_id: uuid.UUID) -> list[MoveAnalysis]:

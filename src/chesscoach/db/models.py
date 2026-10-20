@@ -303,19 +303,60 @@ class SkillOpportunity(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
 
 
-class StudentSkillProfile(Base):
-    __tablename__ = "student_skill_profiles"
-    __table_args__ = (UniqueConstraint("student_id", "skill_code", "profile_version"),)
+class ProfileSnapshot(Base):
+    """One versioned profile build for a student. Skill rows hang off it."""
+
+    __tablename__ = "profile_snapshots"
+    __table_args__ = (UniqueConstraint("student_id", "profile_version"),)
 
     id: Mapped[uuid.UUID] = _pk()
     student_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
+    profile_version: Mapped[int] = mapped_column(Integer)
+    # Hash of all evidence that went in; an unchanged fingerprint means no new version.
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    # Only games played before this date were used (research hygiene); None = all games.
+    cutoff_date: Mapped[date | None] = mapped_column()
+    settings: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    summary: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    triggered_by: Mapped[str] = mapped_column(String(64))
+    generated_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+    skills: Mapped[list["StudentSkillProfile"]] = relationship(
+        back_populates="snapshot",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="StudentSkillProfile.priority_score.desc().nulls_last()",
+    )
+
+
+class StudentSkillProfile(Base):
+    """Per-skill aggregate inside a profile snapshot. Historical rows are never modified."""
+
+    __tablename__ = "student_skill_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id",
+            "skill_code",
+            "subskill_code",
+            name="uq_student_skill_profiles_snapshot_skill",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("profile_snapshots.id", ondelete="CASCADE"), index=True
+    )
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
     skill_code: Mapped[str] = mapped_column(String(64), index=True)
+    subskill_code: Mapped[str | None] = mapped_column(String(64))
     profile_version: Mapped[int] = mapped_column(Integer)
     state: Mapped[ProfileState] = mapped_column(str_enum(ProfileState, "profile_state"))
-    error_rate: Mapped[float | None] = mapped_column(Float)
-    opportunity_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_rate: Mapped[float | None] = mapped_column(Float)  # smoothed (Beta-Binomial)
+    opportunity_count: Mapped[int | None] = mapped_column(Integer)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
     games_affected: Mapped[int] = mapped_column(Integer, default=0)
     confidence: Mapped[float | None] = mapped_column(Float)
@@ -323,6 +364,8 @@ class StudentSkillProfile(Base):
     evidence_summary: Mapped[dict[str, Any]] = mapped_column(default=dict)
     settings: Mapped[dict[str, Any]] = mapped_column(default=dict)
     generated_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+    snapshot: Mapped[ProfileSnapshot] = relationship(back_populates="skills")
 
 
 class LearningPlan(TimestampMixin, Base):

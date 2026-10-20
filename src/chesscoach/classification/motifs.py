@@ -116,6 +116,19 @@ def detect_in_move(board: chess.Board, move: chess.Move) -> list[Motif]:
     return motifs
 
 
+def captured_value(fen: str, move_uci: str | None) -> int:
+    """Material value captured by a move (0 for non-captures and unparseable input)."""
+    if not move_uci:
+        return 0
+    board = chess.Board(fen)
+    move = chess.Move.from_uci(move_uci)
+    if move not in board.legal_moves or not board.is_capture(move):
+        return 0
+    if board.is_en_passant(move):
+        return VALUES[chess.PAWN]
+    return VALUES[board.piece_type_at(move.to_square)]
+
+
 def detect_missed(fen_before: str, best_move_uci: str | None, best_mate: int | None) -> list[Motif]:
     """Motifs contained in the engine's best move for the student."""
     if best_mate is not None and best_mate > 0:

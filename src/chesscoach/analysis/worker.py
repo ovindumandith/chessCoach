@@ -28,6 +28,7 @@ from chesscoach.db.enums import AnalysisPass, JobStatus, MappingStatus
 from chesscoach.db.models import AnalysisRun, Game, MoveAnalysis
 from chesscoach.db.session import get_sessionmaker
 from chesscoach.db.types import utcnow
+from chesscoach.profiling.service import rebuild_profile
 
 log = logging.getLogger("chesscoach.worker")
 
@@ -188,7 +189,8 @@ def run_once(db: Session, analyzer: PositionAnalyzer, settings: Settings, claima
 
 
 def _classify_if_final(db: Session, run: AnalysisRun) -> None:
-    """Derive candidate observations once the last analysis pass for the game is done.
+    """Derive candidate observations, then refresh the profile, once the last analysis pass
+    for the game is done.
 
     Classification lives in its own module and only reads stored evidence. A failure here
     is logged but never fails the analysis run, which can be reclassified later.
@@ -211,9 +213,17 @@ def _classify_if_final(db: Session, run: AnalysisRun) -> None:
             result.observations,
             result.opportunities,
         )
+        game = db.get(Game, run.game_id)
+        rebuilt = rebuild_profile(db, game.student_id, triggered_by="analysis")
+        log.info(
+            "Profile for student %s at version %d (%s)",
+            game.student_id,
+            rebuilt.snapshot.profile_version,
+            "new" if rebuilt.created else "unchanged",
+        )
     except Exception:
         db.rollback()
-        log.exception("Classification failed for game %s", run.game_id)
+        log.exception("Classification or profile update failed for game %s", run.game_id)
 
 
 def _to_row(run_id: uuid.UUID, r: MoveRecord) -> MoveAnalysis:

@@ -14,6 +14,7 @@ from chesscoach.db.enums import (
     GameResult,
     JobStatus,
     MappingStatus,
+    ProfileState,
     ReviewStatus,
 )
 
@@ -193,6 +194,7 @@ class ClassifyResultOut(BaseModel):
     observations: int
     opportunities: int
     preserved_reviewed: int
+    carried_reviews: int
     classifier_version: str
 
 
@@ -283,3 +285,46 @@ class ReviewRequest(BaseModel):
     skill_code: str | None = Field(default=None, description="Required for 'correct'.")
     subskill_code: str | None = None
     note: str | None = Field(default=None, max_length=2000)
+
+
+# --------------------------------------------------------------------------- profiles
+
+
+class SkillProfileOut(ORMModel):
+    skill_code: str
+    subskill_code: str | None
+    state: ProfileState
+    error_rate: float | None = Field(
+        description="Beta-Binomial smoothed rate of the driving channel."
+    )
+    opportunity_count: int | None
+    error_count: int
+    games_affected: int
+    confidence: float | None = Field(description="Data share of the posterior mean, n/(n+a+b).")
+    priority_score: float | None = Field(
+        description="Training-priority heuristic E*S*R*C. Not a validated measure of ability."
+    )
+    evidence_summary: dict[str, Any]
+
+
+class ProfileSnapshotOut(ORMModel):
+    id: uuid.UUID
+    student_id: uuid.UUID
+    profile_version: int
+    cutoff_date: date | None
+    triggered_by: str
+    generated_at: datetime
+    settings: dict[str, Any]
+    summary: dict[str, Any]
+
+
+class ProfileOut(BaseModel):
+    snapshot: ProfileSnapshotOut
+    stale: bool = Field(description="True if evidence changed since this snapshot was built.")
+    skills: list[SkillProfileOut]
+
+
+class RebuildRequest(BaseModel):
+    cutoff_date: date | None = Field(
+        default=None, description="Research use: only games played before this date."
+    )

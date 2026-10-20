@@ -3,7 +3,7 @@
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from chesscoach.analysis.worker import run_once
 from chesscoach.core.config import Settings
@@ -55,7 +55,7 @@ def test_missed_mate_classified_with_evidence(client, db, classified):
     assert mate["review_status"] == "candidate"
     assert mate["details"]["motif_kind"] == "missed"
     assert mate["details"]["ply"] == 7
-    assert mate["classifier_version"] == "classifier-v1"
+    assert mate["classifier_version"] == "classifier-v2"
     assert mate["taxonomy_version"] == "taxonomy-v1"
     assert "not a calibrated probability" in mate["confidence_note"]
     ev = mate["evidence"]
@@ -198,3 +198,53 @@ def test_classify_without_analysis_is_conflict(client, mixed_pgn):
     ).json()
     game_id = report["games"][0]["game_id"]
     assert client.post(f"{API}/games/{game_id}/classify").status_code == 409
+
+
+def test_reviews_carry_forward_to_a_new_classifier_version(client, db, classified):
+    """Bumping the classifier must not throw away coach reviews."""
+    from chesscoach.db.models import WeaknessObservation
+
+    student, game_id = classified
+    items = _weaknesses(client, student["id"])["items"]
+    assert len(items) >= 3
+    confirm, correct, reject = items[0], items[1], items[2]
+    client.patch(
+        f"{API}/observations/{confirm['id']}/review", json={"action": "confirm", "note": "seen it"}
+    )
+    client.patch(
+        f"{API}/observations/{correct['id']}/review",
+        json={
+            "action": "correct",
+            "skill_code": "calculation",
+            "subskill_code": "variation_accuracy",
+        },
+    )
+    client.patch(f"{API}/observations/{reject['id']}/review", json={"action": "reject"})
+
+    # Pretend all existing rows came from an older classifier.
+    for obs in db.scalars(select(WeaknessObservation)).all():
+        obs.classifier_version = "classifier-v0"
+    db.commit()
+
+    result = client.post(f"{API}/games/{game_id}/classify").json()
+    assert result["carried_reviews"] == 3
+
+    current = db.scalars(
+        select(WeaknessObservation).where(WeaknessObservation.classifier_version == "classifier-v2")
+    ).all()
+    by_status = {}
+    for o in current:
+        by_status.setdefault(o.review_status.value, []).append(o)
+    assert len(by_status["confirmed"]) == 1
+    assert by_status["confirmed"][0].review_note == "seen it"
+    corrected = by_status["corrected"][0]
+    assert (corrected.skill_code, corrected.subskill_code) == ("calculation", "variation_accuracy")
+    assert corrected.details["original"]["skill_code"] == correct["skill_code"]
+    assert corrected.details["review_carried_from"]["classifier_version"] == "classifier-v0"
+    assert len(by_status["rejected"]) == 1
+    # Old-version rows are kept as history.
+    assert db.scalar(
+        select(func.count())
+        .select_from(WeaknessObservation)
+        .where(WeaknessObservation.classifier_version == "classifier-v0")
+    ) == len(items)
