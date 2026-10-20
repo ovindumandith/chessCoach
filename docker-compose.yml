@@ -5,6 +5,7 @@ x-app-env: &app-env
   APP_SECRET_KEY: ${APP_SECRET_KEY:-replace_me}
   DATABASE_URL: postgresql+psycopg://chesscoach:${POSTGRES_PASSWORD:-chesscoach}@db:5432/chesscoach
   STORAGE_DIR: /data/uploads
+  EXPERIMENTS_DIR: /data/experiments
   PGN_MAX_UPLOAD_MB: ${PGN_MAX_UPLOAD_MB:-25}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
 

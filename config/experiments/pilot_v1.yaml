@@ -1,0 +1,10 @@
+# Example experiment. Copy and adjust; never edit a config after reporting its results.
+name: pilot_v1
+seed: 7
+student_ids: null            # null = all students
+cutoff_date: "2024-06-01"    # predictive validity: profiles see only earlier games
+k: 3
+min_games_before: 3
+min_games_after: 2
+sample_flagged: 100          # annotation template: moves the classifier flagged
+sample_unflagged: 100        # ...and moves it did not (needed to measure recall)

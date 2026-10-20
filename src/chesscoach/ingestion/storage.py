@@ -29,5 +29,8 @@ class LocalFileStorage:
     def read(self, storage_key: str) -> bytes:
         return self._path_for(storage_key).read_bytes()
 
+    def delete(self, storage_key: str) -> None:
+        self._path_for(storage_key).unlink(missing_ok=True)
+
     def exists(self, storage_key: str) -> bool:
         return self._path_for(storage_key).exists()

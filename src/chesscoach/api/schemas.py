@@ -92,6 +92,7 @@ class GameSummary(ORMModel):
     ply_count: int
     has_clock: bool
     created_at: datetime
+    analysis_status: str | None = None
 
 
 class GameDetail(GameSummary):

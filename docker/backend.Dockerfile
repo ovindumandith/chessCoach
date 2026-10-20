@@ -20,6 +20,10 @@ COPY migrations ./migrations
 COPY config ./config
 COPY prompts ./prompts
 
+# Recorded in research results (there is no git inside the image).
+ARG CHESSCOACH_REVISION=unknown
+ENV CHESSCOACH_REVISION=${CHESSCOACH_REVISION}
+
 FROM base AS backend
 USER app
 EXPOSE 8000

@@ -4,7 +4,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, UploadFile, status
 
+from chesscoach import privacy
 from chesscoach import students as student_service
+from chesscoach.analysis import service as analysis_service
 from chesscoach.api.deps import CurrentUser, DbSession, rate_limited
 from chesscoach.api.schemas import (
     AliasCreate,
@@ -97,6 +99,20 @@ def list_games(
     rows, total = game_queries.list_student_games(
         db, student_id, limit=limit, offset=offset, needs_mapping=needs_mapping
     )
-    return Page(
-        items=[GameSummary.model_validate(g) for g in rows], total=total, limit=limit, offset=offset
-    )
+    states = analysis_service.analysis_states(db, [g.id for g in rows])
+    items = [
+        GameSummary.model_validate(g).model_copy(update={"analysis_status": states.get(g.id)})
+        for g in rows
+    ]
+    return Page(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.delete("/{student_id}")
+def delete_student(
+    student_id: uuid.UUID,
+    db: DbSession,
+    user: CurrentUser,
+    confirm: Annotated[str, Query(description="The student's exact display name")],
+) -> dict:
+    """Irreversibly delete the student and all data derived from their games."""
+    return {"deleted": privacy.delete_student(db, student_id, confirm_name=confirm, actor=user)}

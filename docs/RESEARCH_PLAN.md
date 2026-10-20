@@ -52,6 +52,10 @@ These all use the same game evidence.
   - date
 - Experiment configs live in `config/experiments/` and results in `data/experiments/`, which is not committed.
 
+## Tooling
+
+`python -m chesscoach.evaluation` implements studies 1, 3 and 4, plus the review-precision signal. Commands are in `docs/OPERATIONS.md` under "Research workflow". Configs live in `config/experiments/`, and every run writes a self-describing record (code revision, component versions, seed, dataset IDs).
+
 ## Ethics
 
 - Get consent from students, and from guardians if they are minors.

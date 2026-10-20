@@ -65,6 +65,7 @@ class Settings(BaseSettings):
 
     # Relative paths resolve against the working directory (repo root locally, /app in Docker).
     taxonomy_path: Path = Path("config/skill_taxonomy.yaml")
+    experiments_dir: Path = Path("data/experiments")  # research result records
 
     analysis_max_concurrent_games: int = Field(default=2, ge=1)
 

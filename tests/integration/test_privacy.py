@@ -1,0 +1,119 @@
+"""Student deletion removes all derived data, keeps other students' data intact."""
+
+import uuid
+
+from sqlalchemy import func, select
+
+from chesscoach.analysis.worker import run_once
+from chesscoach.core.config import Settings
+from chesscoach.db import models as m
+from chesscoach.db.enums import AccessLevel, UserRole
+from tests.fakes import FakeAnalyzer
+from tests.integration.test_profiles import PGN
+
+API = "/api/v1"
+
+
+def count(db, model, **where):
+    q = select(func.count()).select_from(model)
+    for k, v in where.items():
+        q = q.where(getattr(model, k) == v)
+    return db.scalar(q)
+
+
+def setup_student(client, db, name, aliases, data=PGN):
+    s = client.post(f"{API}/students", json={"display_name": name, "aliases": aliases}).json()
+    report = client.post(
+        f"{API}/students/{s['id']}/games/import",
+        files={"file": ("g.pgn", data, "application/x-chess-pgn")},
+    ).json()
+    for g in report["games"]:
+        if g["game_id"] and g["status"] == "imported":
+            client.post(f"{API}/games/{g['game_id']}/analyze")
+    while run_once(db, FakeAnalyzer(), Settings(stockfish_depth=8), "w"):
+        pass
+    return s
+
+
+def test_delete_student_removes_everything_derived(client, db, storage_dir, make_user):
+    victim = setup_student(client, db, "To Delete", ["Ovindu"])
+    # Same file imported for another student who appears as Black in those games.
+    keeper = setup_student(client, db, "Keeper", ["Opp1", "Opp2", "Opp3"])
+    vid, kid = uuid.UUID(victim["id"]), uuid.UUID(keeper["id"])
+
+    # Exercises, attempts, a lesson and a student login for the victim.
+    learner = make_user("victim@example.com", UserRole.STUDENT)
+    learner.password_hash = "scrypt$x"
+    db.add(m.StudentAccess(user_id=learner.id, student_id=vid, access_level=AccessLevel.SELF))
+    db.commit()
+    ex = client.post(f"{API}/students/{victim['id']}/exercises").json()[0]
+    client.post(
+        f"{API}/exercises/{ex['id']}/attempts",
+        json={"move": "Qxf7#"},
+        headers={"X-Dev-User-Email": "victim@example.com"},
+    )
+    client.post(f"{API}/students/{victim['id']}/coaching/lessons")
+    assert count(db, m.WeaknessObservation, student_id=vid) > 0
+    assert count(db, m.ProfileSnapshot, student_id=vid) > 0
+    keeper_games_before = count(db, m.Game, student_id=kid)
+    files_before = list(storage_dir.rglob("*.pgn"))
+
+    wrong = client.delete(f"{API}/students/{victim['id']}", params={"confirm": "to delete"})
+    assert wrong.status_code == 422  # must match the exact name
+    resp = client.delete(f"{API}/students/{victim['id']}", params={"confirm": "To Delete"})
+    assert resp.status_code == 200
+    deleted = resp.json()["deleted"]
+    assert deleted["games"] == 3 and deleted["exercises"] >= 1 and deleted["coaching_sessions"] == 1
+    assert deleted["student_logins_anonymised"] == 1
+
+    db.expire_all()
+    assert db.get(m.Student, vid) is None
+    for model in (
+        m.Game,
+        m.WeaknessObservation,
+        m.SkillOpportunity,
+        m.ProfileSnapshot,
+        m.StudentSkillProfile,
+        m.Exercise,
+        m.ExerciseAttempt,
+        m.CoachingSession,
+        m.StudentAccess,
+        m.StudentAlias,
+    ):
+        assert count(db, model, student_id=vid) == 0, model.__name__
+    victim_runs = db.scalar(
+        select(func.count())
+        .select_from(m.AnalysisRun)
+        .where(m.AnalysisRun.game_id.not_in(select(m.Game.id)))
+    )
+    assert victim_runs == 0  # no orphaned analysis
+
+    # The other student's data and the shared PGN file survive.
+    assert count(db, m.Game, student_id=kid) == keeper_games_before
+    assert list(storage_dir.rglob("*.pgn")) == files_before
+
+    # The login is anonymised, deactivated and unusable; the audit trail holds no name.
+    user = db.get(m.User, learner.id)
+    assert user.is_active is False and user.password_hash is None
+    assert user.email.endswith("@deleted.invalid")
+    event = db.scalar(select(m.AuditEvent).where(m.AuditEvent.action == "student.delete"))
+    assert event.entity_id == str(vid) and "To Delete" not in str(event.details)
+
+
+def test_last_user_of_a_file_removes_the_stored_pgn(client, db, storage_dir):
+    s = setup_student(client, db, "Solo", ["Ovindu"])
+    assert list(storage_dir.rglob("*.pgn"))
+    client.delete(f"{API}/students/{s['id']}", params={"confirm": "Solo"})
+    assert list(storage_dir.rglob("*.pgn")) == []
+    assert count(db, m.SourceFile) == 0
+
+
+def test_only_the_coach_may_delete(client, db, make_user):
+    s = client.post(f"{API}/students", json={"display_name": "Mine"}).json()
+    make_user("other@example.com")
+    resp = client.delete(
+        f"{API}/students/{s['id']}",
+        params={"confirm": "Mine"},
+        headers={"X-Dev-User-Email": "other@example.com"},
+    )
+    assert resp.status_code == 403

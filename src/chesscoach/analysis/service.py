@@ -3,7 +3,7 @@
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from chesscoach.analysis.game_analyzer import ANALYSIS_VERSION
@@ -154,3 +154,71 @@ def _moves(db: Session, run_id: uuid.UUID) -> list[MoveAnalysis]:
             .order_by(MoveAnalysis.ply)
         ).all()
     )
+
+
+# --------------------------------------------------------------------------- status
+
+
+def _states(db: Session, game_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict]:
+    """Analysis state per game from its latest baseline run and that run's critical pass.
+
+    not_requested | queued | running | deepening (results ready, deeper pass still running)
+    | analyzed | failed
+    """
+    runs = db.scalars(
+        select(AnalysisRun)
+        .where(AnalysisRun.game_id.in_(game_ids))
+        .order_by(AnalysisRun.created_at)
+    ).all()
+    baseline: dict[uuid.UUID, AnalysisRun] = {}
+    critical: dict[str, AnalysisRun] = {}
+    for run in runs:
+        if run.pass_type == AnalysisPass.BASELINE:
+            baseline[run.game_id] = run  # latest wins (ordered by created_at)
+        else:
+            critical[run.configuration.get("parent_run_id", "")] = run
+    out = {}
+    for gid in game_ids:
+        b = baseline.get(gid)
+        c = critical.get(str(b.id)) if b else None
+        if b is None:
+            state = "not_requested"
+        elif b.status == JobStatus.COMPLETED:
+            state = "deepening" if c is not None and c.status in ACTIVE else "analyzed"
+        else:
+            state = b.status.value  # queued | running | failed
+        out[gid] = {"state": state, "baseline": b, "critical": c}
+    return out
+
+
+def analysis_states(db: Session, game_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+    return {gid: s["state"] for gid, s in _states(db, game_ids).items()} if game_ids else {}
+
+
+def analysis_status(db: Session, user: User, game_id: uuid.UUID) -> dict:
+    """Status of a game's analysis, so clients can wait without polling for a 404."""
+    game = _get_game(db, game_id)
+    require_student_access(db, user, game.student_id)
+    s = _states(db, [game.id])[game.id]
+    b, c = s["baseline"], s["critical"]
+    ahead = None
+    if b is not None and b.status == JobStatus.QUEUED:
+        ahead = db.scalar(
+            select(func.count())
+            .select_from(AnalysisRun)
+            .where(AnalysisRun.status.in_(ACTIVE), AnalysisRun.created_at < b.created_at)
+        )
+    return {
+        "game_id": str(game.id),
+        "state": s["state"],
+        "results_available": s["state"] in ("analyzed", "deepening"),
+        "jobs_ahead": ahead,
+        "baseline_job_id": str(b.id) if b else None,
+        "critical_job_id": str(c.id) if c else None,
+        "error_message": b.error_message
+        if b is not None and b.status == JobStatus.FAILED
+        else None,
+        "moves_to_analyze": (game.ply_count + 1) // 2
+        if game.student_color and game.student_color.value == "white"
+        else game.ply_count // 2,
+    }
