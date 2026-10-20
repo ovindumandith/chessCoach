@@ -3,11 +3,13 @@
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from chesscoach import __version__
 from chesscoach.api.routes import (
     analysis,
+    auth,
     coaching,
     exercises,
     games,
@@ -26,7 +28,15 @@ def create_app() -> FastAPI:
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
 
+    settings.check_security()
     app = FastAPI(title="ChessMentor AI", version=__version__)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=False,  # bearer tokens, no cookies
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
     @app.exception_handler(DomainError)
     async def _domain_error(_: Request, exc: DomainError) -> JSONResponse:
@@ -36,6 +46,7 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(health.router, prefix=API_PREFIX)
+    app.include_router(auth.router, prefix=API_PREFIX)
     app.include_router(students.router, prefix=API_PREFIX)
     app.include_router(games.router, prefix=API_PREFIX)
     app.include_router(analysis.router, prefix=API_PREFIX)

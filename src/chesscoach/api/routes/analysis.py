@@ -3,13 +3,17 @@ import uuid
 from fastapi import APIRouter, Response, status
 
 from chesscoach.analysis import service
-from chesscoach.api.deps import CurrentUser, DbSession
+from chesscoach.api.deps import CurrentUser, DbSession, rate_limited
 from chesscoach.api.schemas import AnalysisJobOut, AnalyzeRequest, GameAnalysisOut, MoveAnalysisOut
 
 router = APIRouter(tags=["analysis"])
 
 
-@router.post("/games/{game_id}/analyze", response_model=AnalysisJobOut)
+@router.post(
+    "/games/{game_id}/analyze",
+    response_model=AnalysisJobOut,
+    dependencies=[rate_limited("analysis", lambda s: s.rate_limit_analysis_per_hour)],
+)
 def analyze_game(
     game_id: uuid.UUID,
     db: DbSession,

@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, UploadFile, status
 
 from chesscoach import students as student_service
-from chesscoach.api.deps import CurrentUser, DbSession
+from chesscoach.api.deps import CurrentUser, DbSession, rate_limited
 from chesscoach.api.schemas import (
     AliasCreate,
     GameSummary,
@@ -61,6 +61,7 @@ def add_alias(
     "/{student_id}/games/import",
     response_model=ImportReportOut,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[rate_limited("imports", lambda s: s.rate_limit_imports_per_hour)],
 )
 async def import_games(
     student_id: uuid.UUID, file: UploadFile, db: DbSession, user: CurrentUser

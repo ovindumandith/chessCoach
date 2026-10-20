@@ -75,3 +75,12 @@ def make_user(db):
 @pytest.fixture
 def mixed_pgn() -> bytes:
     return (FIXTURES / "mixed_games.pgn").read_bytes()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    from chesscoach.core.ratelimit import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()

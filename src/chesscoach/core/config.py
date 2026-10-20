@@ -12,8 +12,21 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: Literal["development", "test", "production"] = "development"
-    app_secret_key: str = "replace_me"
+    app_secret_key: str = "replace_me"  # signs JWTs; must be strong outside dev/test
     log_level: str = "INFO"
+
+    # Authentication. The development header stub (X-Dev-User-Email) works only in the
+    # test environment, or in development when auth_dev_bypass is explicitly enabled.
+    auth_dev_bypass: bool = False
+    access_token_minutes: int = Field(default=60, ge=5, le=24 * 60)
+    cors_origins: list[str] = ["http://localhost:5173"]
+
+    # Rate limits (per user, per hour) for expensive operations; login is per email+IP.
+    rate_limit_lessons_per_hour: int = Field(default=20, ge=1)
+    rate_limit_analysis_per_hour: int = Field(default=120, ge=1)
+    rate_limit_exercises_per_hour: int = Field(default=60, ge=1)
+    rate_limit_imports_per_hour: int = Field(default=60, ge=1)
+    rate_limit_logins_per_15min: int = Field(default=10, ge=1)
 
     database_url: str = "sqlite:///./data/chesscoach.db"
 
@@ -62,6 +75,19 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+    @property
+    def dev_auth_allowed(self) -> bool:
+        return self.app_env == "test" or (self.app_env == "development" and self.auth_dev_bypass)
+
+    def check_security(self) -> None:
+        """Refuse to run outside dev/test with an unsafe signing key."""
+        if self.app_env == "production" and (
+            self.app_secret_key in ("", "replace_me") or len(self.app_secret_key) < 32
+        ):
+            raise RuntimeError(
+                "APP_SECRET_KEY must be a random string of 32+ characters in production"
+            )
 
 
 @lru_cache

@@ -11,7 +11,7 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 | 5 | Longitudinal profiles, Beta-Binomial smoothing, priority heuristic | ✅ |
 | 6 | LLM adapter, evidence retrieval, structured lessons, validation, fallback | ✅ |
 | 7 | Exercises and attempt tracking | ✅ |
-| 8 | Frontend, authentication (JWT + roles), authorization hardening | ⏳ |
+| 8 | Frontend, authentication (JWT + roles), authorization hardening | ✅ |
 | 9 | Research evaluation, end-to-end tests, deployment docs | ⏳ |
 
 ## Phase 1 — Foundation
@@ -229,7 +229,54 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 - No exercises from unseen positions yet, which research-grade pre/post measurement needs. A themed puzzle bank (for example the CC0 Lichess puzzle database) is the natural source, and it's a decision for you to make.
 - Difficulty labels are heuristics from the mate distance or best-move margin.
 
-## Phase 8 — Frontend, authentication, authorization (next)
+## Phase 8 — Authentication, authorization, frontend
 
-- JWT authentication with roles, replacing the development stub. Rate limits on lesson and exercise generation.
-- React and TypeScript coach dashboard and student views, with a chessboard (react-chessboard and chess.js) for exercises and game review.
+**Backend security**
+- Passwords use stdlib `scrypt` (N=2^14, r=8, p=1, per-user salt, constant-time compare), with a minimum length of 10.
+- Access tokens are HS256 JWTs via PyJWT, 60 minutes by default. `sub`, `exp` and `iat` are required, and `alg=none` and other keys are rejected.
+- `POST /auth/login`: emails are normalized, unknown emails and wrong passwords get identical responses and timing, and every attempt is audited.
+- Other account endpoints:
+  - `GET /auth/me`, with the accessible students
+  - `POST /auth/change-password`
+  - `POST /users`: admin only, creates coach or admin accounts
+  - `POST /students/{id}/account`: a coach creates a login for their own student, with SELF access, one per student
+- `python -m chesscoach.bootstrap` creates the first admin. There are no default credentials.
+- The `X-Dev-User-Email` stand-in is accepted only in `test`, or in `development` with `AUTH_DEV_BYPASS=true`. Production also **refuses to start** without a strong `APP_SECRET_KEY`.
+- **Rate limits** (in-memory sliding window, per user per hour): lessons, analysis requests, exercise creation and PGN imports. Logins are limited per email and IP (10 per 15 minutes), which returns 429 with `retry_after_seconds`.
+- CORS allows only configured origins, with no cookies. The Docker frontend is same-origin through nginx.
+
+**Frontend** (`frontend/`: React 19, TypeScript strict, Vite 8, react-chessboard 5, chess.js 1, react-router 7; exact versions at least two weeks old, installed with `--ignore-scripts`)
+- **Coach:** student list and creation. Per student, seven tabs:
+  - Games: PGN import with the report, colour confirmation, Analyze
+  - Review findings: a board with played and engine-best arrows, confirm, reject, or correct against the taxonomy
+  - Profile: states, rates, priority, exercise accuracy, rebuild and stale flag
+  - Lessons: generate, with history and the source shown (LLM or template)
+  - Exercises
+  - Progress
+  - Account: create the student's login
+- **Game viewer:** every student move with evaluation before and after, the engine line, the opponent's best reply, and big losses flagged. Deeper critical-pass evidence replaces the baseline.
+- **Student:** exercises (drag a piece or type SAN, progressive hints, give up, solution and "what you played in the game" afterwards), lessons, own profile, progress, own games.
+- Tokens are kept in `sessionStorage` and sent as Bearer tokens, never as cookies. A 401 signs the user out. Every page has loading, empty and error states, and both light and dark themes are supported.
+- **Docker:** a `frontend` service (a Node build stage, then nginx with security headers and an SPA fallback) proxies `/api` to the backend on port 8080.
+
+**Verified**
+- 236 backend tests pass. `tsc --noEmit` and `vite build` succeed.
+- End to end through nginx with real Stockfish 18 on PostgreSQL:
+  - The admin bootstraps, then creates a coach.
+  - The coach sees only their own students.
+  - The coach creates a student, imports a PGN and gives the student a login.
+  - The student can reach only their own record (403 elsewhere, and on creating students or importing).
+  - The student solves a practice exercise from their own game.
+- **Not yet done:** clicking through the UI in a real browser. Automated browser tests come in Phase 9.
+
+### Known limitations
+
+- Rate limits and the login throttle are per process. Several backend processes need a shared store such as Redis.
+- There are no refresh tokens: users sign in again after 60 minutes, and tokens can't be revoked before they expire (deactivating a user blocks them on the next request).
+- Admin user management has an API but no screen yet.
+
+## Phase 9 — Research evaluation, end-to-end tests, deployment (next)
+
+- Evaluation module: baselines A (engine only), B (rule-based) and C (LLM with profile) on the same evidence. Classifier precision, recall and macro-F1 against coach-reviewed labels. Predictive validity of cutoff profiles. Experiment configs and versions recorded.
+- Browser end-to-end tests (Playwright) of the core coach and student workflow.
+- Backup, restore and data-deletion procedures, and deployment documentation.

@@ -3,14 +3,19 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 
-from chesscoach.api.deps import CurrentUser, DbSession
+from chesscoach.api.deps import CurrentUser, DbSession, rate_limited
 from chesscoach.api.schemas import CoachingSessionOut, LessonOut, LessonRequest, Page
 from chesscoach.coaching import service
 
 router = APIRouter(prefix="/students/{student_id}/coaching", tags=["coaching"])
 
 
-@router.post("/lessons", response_model=LessonOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/lessons",
+    response_model=LessonOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[rate_limited("lessons", lambda s: s.rate_limit_lessons_per_hour)],
+)
 def generate_lesson(
     student_id: uuid.UUID,
     db: DbSession,

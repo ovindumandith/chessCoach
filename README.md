@@ -6,7 +6,7 @@ ChessMentor AI is a personalized chess coaching platform. It analyzes students' 
 - Rules for contributors and agents: [`AGENTS.md`](AGENTS.md)
 - Design documents: [`docs/`](docs/), including the architecture, data model, research plan and implementation plan
 
-**Status:** Phases 1–7 are done: foundation, students and PGN import, Stockfish analysis, weakness classification with coach review, versioned student profiles, LLM coaching with validation, and exercises from the student's own games. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+**Status:** Phases 1–8 are done: foundation, PGN import, Stockfish analysis, weakness classification with coach review, versioned profiles, LLM coaching with validation, exercises, login with roles, and the React coach and student interface. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start: local, without Docker
 
@@ -38,7 +38,18 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Then create the first administrator. There are no default accounts:
+
+```bash
+docker compose exec backend python -m chesscoach.bootstrap --email you@example.org
+```
+
+Open http://localhost:8080 and sign in. Then:
+1. Create coach accounts (`POST /api/v1/users`, admin only).
+2. Coaches add students, import PGNs, and give each student a login from the student's **Account** tab.
+
 This starts:
+- `frontend`: the React app served by nginx on port 8080, which proxies `/api` to the backend
 - `db`: PostgreSQL 16
 - `migrate`: runs `alembic upgrade head` once
 - `backend`: the API on port 8000
@@ -93,7 +104,23 @@ python -m chesscoach.analysis.worker
 
 The worker runs one Stockfish process. For more throughput, run more worker processes (`docker compose up --scale worker=2`). On PostgreSQL, jobs are claimed with `SKIP LOCKED`, so two workers never take the same game. Keep `STOCKFISH_THREADS=1` for reproducible research runs.
 
-Until Phase 8 adds authentication, requests run as a development coach account. To act as another existing user in development, send the `X-Dev-User-Email` header. This stub refuses to run when `APP_ENV=production`.
+## Authentication
+
+Every API request needs `Authorization: Bearer <token>` from `POST /api/v1/auth/login`. The roles are:
+- **admin**: everything, including creating coach accounts
+- **coach**: only the students they created or were given
+- **student**: their own record only, and the only role that may answer exercises
+
+For quick local API experiments, `AUTH_DEV_BYPASS=true` (development only) accepts an `X-Dev-User-Email` header instead. It is always off in production, and the curl examples above assume it is on.
+
+## Frontend development
+
+```bash
+cd frontend
+npm ci --ignore-scripts
+npm run dev        # http://localhost:5173, proxies /api to localhost:8000
+npm run build      # type-check and production build
+```
 
 ## Tests and linting
 

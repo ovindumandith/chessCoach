@@ -59,7 +59,12 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
 
-  # frontend: added in Phase 8 (React + TypeScript).
+  frontend:
+    build: { context: ./frontend, dockerfile: ../docker/frontend.Dockerfile }
+    ports:
+      - "8080:80"
+    depends_on:
+      backend: { condition: service_healthy }
 
 volumes:
   pgdata:

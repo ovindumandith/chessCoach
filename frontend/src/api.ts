@@ -1,0 +1,252 @@
+// Thin typed client for the ChessMentor API. The access token lives in sessionStorage
+// (cleared when the tab closes) and is sent as a Bearer token, never as a cookie.
+
+const BASE = "/api/v1";
+const TOKEN_KEY = "chesscoach.token";
+
+export class ApiError extends Error {
+  status: number;
+  details: Record<string, unknown>;
+  constructor(status: number, message: string, details: Record<string, unknown> = {}) {
+    super(message);
+    this.status = status;
+    this.details = details;
+  }
+}
+
+export const token = {
+  get: () => sessionStorage.getItem(TOKEN_KEY),
+  set: (t: string) => sessionStorage.setItem(TOKEN_KEY, t),
+  clear: () => sessionStorage.removeItem(TOKEN_KEY),
+};
+
+let onUnauthorized: () => void = () => {};
+export function setUnauthorizedHandler(fn: () => void) {
+  onUnauthorized = fn;
+}
+
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  const t = token.get();
+  if (t) headers.set("Authorization", `Bearer ${t}`);
+  if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
+  const res = await fetch(BASE + path, { ...init, headers });
+  if (res.status === 204) return undefined as T;
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401 && t) {
+      token.clear();
+      onUnauthorized();
+    }
+    const err = body.error ?? {};
+    throw new ApiError(res.status, err.message ?? body.detail ?? `HTTP ${res.status}`, err.details);
+  }
+  return body as T;
+}
+
+export const post = <T>(path: string, data?: unknown) =>
+  api<T>(path, { method: "POST", body: data === undefined ? undefined : JSON.stringify(data) });
+export const patch = <T>(path: string, data: unknown) =>
+  api<T>(path, { method: "PATCH", body: JSON.stringify(data) });
+
+// ----------------------------------------------------------------------------- types
+
+export type Role = "admin" | "coach" | "student";
+export interface Me {
+  id: string;
+  email: string;
+  role: Role;
+  students: { student_id: string; access_level: "coach" | "self" }[];
+}
+export interface Page<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+export interface Student {
+  id: string;
+  display_name: string;
+  rating_estimate: number | null;
+  skill_level: string | null;
+  aliases: string[];
+}
+export interface Game {
+  id: string;
+  white_name: string;
+  black_name: string;
+  student_color: "white" | "black" | null;
+  mapping_status: string;
+  result: string;
+  played_at: string | null;
+  time_control: string | null;
+  ply_count: number;
+}
+export interface ImportReport {
+  imported: number;
+  needs_mapping: number;
+  duplicates: number;
+  rejected: number;
+  games: { index: number; status: string; white: string | null; black: string | null; reason: string | null }[];
+}
+export interface AnalysisJob {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  error_message: string | null;
+  engine_name: string | null;
+  engine_version: string | null;
+  configuration: Record<string, unknown>;
+}
+export interface MoveAnalysis {
+  ply: number;
+  fen_before: string;
+  san_move: string;
+  uci_move: string;
+  phase: string;
+  eval_before_cp: number | null;
+  eval_before_mate: number | null;
+  eval_after_cp: number | null;
+  eval_after_mate: number | null;
+  best_move_uci: string | null;
+  win_prob_loss: number | null;
+  features: { pv_san?: string[]; refutation_san?: string[]; critical?: boolean; mate_transition?: string };
+}
+export interface GameAnalysis {
+  game_id: string;
+  student_color: "white" | "black" | null;
+  baseline: AnalysisJob;
+  moves: MoveAnalysis[];
+  critical: AnalysisJob | null;
+  critical_moves: MoveAnalysis[];
+}
+export interface Weakness {
+  id: string;
+  game_id: string;
+  skill_code: string;
+  subskill_code: string | null;
+  evidence_type: "motif" | "skill_inference" | "move_quality";
+  severity: number | null;
+  confidence: number | null;
+  review_status: string;
+  review_note: string | null;
+  details: Record<string, unknown>;
+  game_white: string;
+  game_black: string;
+  game_played_at: string | null;
+  evidence: {
+    ply: number;
+    fen_before: string;
+    san_move: string;
+    uci_move: string;
+    best_move_uci: string | null;
+    best_line_san: string[];
+    refutation_san: string[];
+    eval_before_cp: number | null;
+    eval_before_mate: number | null;
+    eval_after_cp: number | null;
+    eval_after_mate: number | null;
+    phase: string;
+  };
+}
+export interface SkillProfile {
+  skill_code: string;
+  subskill_code: string | null;
+  state: string;
+  error_rate: number | null;
+  opportunity_count: number | null;
+  error_count: number;
+  games_affected: number;
+  confidence: number | null;
+  priority_score: number | null;
+  evidence_summary: {
+    provisional?: boolean;
+    needs_diagnostic?: boolean;
+    actionable?: boolean;
+    components?: Record<string, number | null>;
+    exercises?: { attempted: number; first_try_accuracy: number | null };
+  };
+}
+export interface Profile {
+  snapshot: {
+    profile_version: number;
+    generated_at: string;
+    summary: { games_included: number; moves_analyzed: number };
+  };
+  stale: boolean;
+  skills: SkillProfile[];
+}
+export interface Lesson {
+  objective: string;
+  skill_code: string;
+  recurring_pattern: string;
+  examples: { game_id: string; ply: number; fen: string; engine_best_move_uci: string | null; explanation: string }[];
+  student_question: string;
+  exercise_recommendation: string;
+  follow_up_metric: string;
+  uncertainty: string;
+  verified_facts: string[];
+  hypotheses: string[];
+}
+export interface CoachingSession {
+  id: string;
+  model_provider: string;
+  model_id: string;
+  validation_status: string;
+  created_at: string;
+  response_json: Lesson;
+}
+export interface Exercise {
+  id: string;
+  skill_code: string;
+  subskill_code: string | null;
+  purpose: "review" | "practice";
+  status: "open" | "solved" | "failed" | "revealed";
+  start_fen: string;
+  side_to_move: "white" | "black";
+  prompt: string;
+  difficulty: string | null;
+  max_attempts: number;
+  attempts: { attempt_number: number; move_san: string; is_correct: boolean }[];
+  hints_given: number;
+  hints_available: number;
+  solution: {
+    accepted_moves_uci: string[];
+    accepted_moves_san: string[];
+    explanation: string | null;
+    game_move: { san: string; eval_after: string } | null;
+  } | null;
+}
+export interface ProgressSkill {
+  skill_code: string;
+  subskill_code: string | null;
+  exercises: { assigned: number; attempted: number; solved_first_try: number; first_try_accuracy: number | null };
+  profile_trend: { profile_version: number; state: string; error_rate: number | null; games_affected: number }[];
+}
+export interface Taxonomy {
+  version: string;
+  categories: Record<string, { name: string; subskills: Record<string, { name: string }> }>;
+  special: Record<string, { name: string }>;
+}
+
+// ----------------------------------------------------------------------------- helpers
+
+export function formatEval(cp: number | null, mate: number | null, afterMove = false): string {
+  if (mate !== null) {
+    if (mate === 0 && afterMove) return "#";
+    return mate > 0 ? `M${mate}` : `-M${-mate}`;
+  }
+  if (cp === null) return "?";
+  return `${cp >= 0 ? "+" : ""}${(cp / 100).toFixed(2)}`;
+}
+
+export function skillLabel(tax: Taxonomy | null, skill: string, sub: string | null): string {
+  if (!tax) return sub ? `${skill}.${sub}` : skill;
+  if (tax.special[skill]) return tax.special[skill].name;
+  const cat = tax.categories[skill];
+  if (!cat) return skill;
+  return sub && cat.subskills[sub] ? `${cat.name}: ${cat.subskills[sub].name}` : cat.name;
+}
+
+export function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}

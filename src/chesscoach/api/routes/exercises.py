@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 
-from chesscoach.api.deps import CurrentUser, DbSession
+from chesscoach.api.deps import CurrentUser, DbSession, rate_limited
 from chesscoach.api.schemas import (
     AttemptOut,
     AttemptRequest,
@@ -57,6 +57,7 @@ def exercise_out(db, ex) -> ExerciseOut:
     "/students/{student_id}/exercises",
     response_model=list[ExerciseOut],
     status_code=status.HTTP_201_CREATED,
+    dependencies=[rate_limited("exercises", lambda s: s.rate_limit_exercises_per_hour)],
 )
 def create_exercises(
     student_id: uuid.UUID, db: DbSession, user: CurrentUser, body: ExerciseCreate | None = None
