@@ -23,10 +23,13 @@ def dataset(client, db):
     s = client.post(f"{API}/students", json={"display_name": "S", "aliases": ["Ovindu"]}).json()
     report = client.post(
         f"{API}/students/{s['id']}/games/import",
+        headers=client.as_student(s["id"]),
         files={"file": ("g.pgn", PGN, "application/x-chess-pgn")},
     ).json()
     for g in report["games"]:
-        client.post(f"{API}/games/{g['game_id']}/analyze")
+        client.post(
+            f"{API}/games/{g['game_id']}/analyze", headers=client.as_student.game(g["game_id"])
+        )
     while run_once(db, FakeAnalyzer(), Settings(stockfish_depth=8), "w"):
         pass
     return s
@@ -84,8 +87,16 @@ def test_review_precision(client, db, dataset):
     items = client.get(
         f"{API}/students/{dataset['id']}/weaknesses", params={"skill_code": "tactical_awareness"}
     ).json()["items"]
-    client.patch(f"{API}/observations/{items[0]['id']}/review", json={"action": "confirm"})
-    client.patch(f"{API}/observations/{items[1]['id']}/review", json={"action": "reject"})
+    client.patch(
+        f"{API}/observations/{items[0]['id']}/review",
+        json={"action": "confirm"},
+        headers=client.as_admin,
+    )
+    client.patch(
+        f"{API}/observations/{items[1]['id']}/review",
+        json={"action": "reject"},
+        headers=client.as_admin,
+    )
     results, _ = benchmark.review_precision(db, cfg())
     label = results["per_label"]["tactical_awareness.mating_patterns"]
     assert (label["reviewed"], label["confirmed"], label["precision"]) == (2, 1, 0.5)

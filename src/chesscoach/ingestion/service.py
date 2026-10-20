@@ -8,7 +8,7 @@ from pathlib import PurePath
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from chesscoach.core.access import require_student_access
+from chesscoach.core.access import require_own_student_record
 from chesscoach.core.audit import record_audit
 from chesscoach.core.errors import NotFoundError, PayloadTooLargeError, ValidationFailedError
 from chesscoach.db.enums import Color, ImportStatus, MappingStatus
@@ -58,7 +58,8 @@ def import_pgn(
     data: bytes,
     max_bytes: int,
 ) -> ImportReport:
-    student = require_student_access(db, user, student_id, coach_only=True)
+    # Students add their own games; coaches only monitor (admins may import for support).
+    student = require_own_student_record(db, user, student_id, allow_admin=True)
 
     safe_name = PurePath(filename or "upload.pgn").name[:255]
     if PurePath(safe_name).suffix.lower() not in ALLOWED_EXTENSIONS:
@@ -79,7 +80,16 @@ def import_pgn(
 
     sha256 = hashlib.sha256(data).hexdigest()
     source = db.scalar(select(SourceFile).where(SourceFile.sha256 == sha256))
-    previously_uploaded = source is not None
+    # Only this student's own imports count: whether *anyone* uploaded the file before must not
+    # leak across students now that students upload too.
+    previously_uploaded = source is not None and (
+        db.scalar(
+            select(Game.id)
+            .where(Game.student_id == student.id, Game.source_file_id == source.id)
+            .limit(1)
+        )
+        is not None
+    )
     if source is None:
         storage_key = storage.save(sha256, data)
         source = SourceFile(
@@ -141,6 +151,7 @@ def import_pgn(
             pgn_headers=pg.headers,
             raw_pgn=pg.raw_pgn,
             import_warnings=pg.warnings,
+            imported_by=user.id,
         )
         db.add(game)
         db.flush()
@@ -201,11 +212,12 @@ def import_pgn(
 
 
 def confirm_game_mapping(db: Session, user: User, game_id: uuid.UUID, student_color: Color) -> Game:
-    """Coach confirms which color the student played in an unmatched/ambiguous game."""
+    """The student confirms which color they played in an unmatched/ambiguous game (they know
+    which side they were on). Audited."""
     game = db.get(Game, game_id)
     if game is None:
         raise NotFoundError("Game not found")
-    require_student_access(db, user, game.student_id, coach_only=True)
+    require_own_student_record(db, user, game.student_id, allow_admin=True)
     previous = game.mapping_status
     game.student_color = student_color
     game.mapping_status = MappingStatus.CONFIRMED
@@ -223,5 +235,8 @@ def confirm_game_mapping(db: Session, user: User, game_id: uuid.UUID, student_co
 
 def _mapping_reason(status: MappingStatus) -> str:
     if status == MappingStatus.AMBIGUOUS:
-        return "Both players match this student's aliases; coach must confirm the color"
-    return "Neither player matches this student's aliases; coach must confirm or add an alias"
+        return "Both players match this student's PGN names; confirm which side the student played"
+    return (
+        "Neither player matches this student's PGN names; confirm the side in the games list "
+        "(the coach can add the name as an alias)"
+    )

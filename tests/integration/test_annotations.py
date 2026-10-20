@@ -17,11 +17,12 @@ def setup(client, db, pgn):
     s = client.post(f"{API}/students", json={"display_name": "S", "aliases": ["Me"]}).json()
     report = client.post(
         f"{API}/students/{s['id']}/games/import",
+        headers=client.as_student(s["id"]),
         files={"file": ("g.pgn", pgn, "application/x-chess-pgn")},
     ).json()
     gid = report["games"][0]["game_id"]
     assert client.get(f"{API}/games/{gid}/annotations").status_code == 409  # not analyzed yet
-    client.post(f"{API}/games/{gid}/analyze")
+    client.post(f"{API}/games/{gid}/analyze", headers=client.as_student.game(gid))
     while run_once(db, FakeAnalyzer(), Settings(stockfish_depth=8), "w"):
         pass
     return gid

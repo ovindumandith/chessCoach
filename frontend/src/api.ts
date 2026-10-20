@@ -48,6 +48,9 @@ export const post = <T>(path: string, data?: unknown) =>
   api<T>(path, { method: "POST", body: data === undefined ? undefined : JSON.stringify(data) });
 export const patch = <T>(path: string, data: unknown) =>
   api<T>(path, { method: "PATCH", body: JSON.stringify(data) });
+export const put = <T>(path: string, data?: unknown) =>
+  api<T>(path, { method: "PUT", body: data === undefined ? undefined : JSON.stringify(data) });
+export const del = (path: string) => api<void>(path, { method: "DELETE" });
 
 // ----------------------------------------------------------------------------- types
 
@@ -70,6 +73,15 @@ export interface Student {
   rating_estimate: number | null;
   skill_level: string | null;
   aliases: string[];
+  /** Coach overview counts; only on the student list. */
+  activity?: {
+    games: number;
+    games_by_student: number;
+    last_student_upload: string | null;
+    mistakes: number;
+    open_mistakes: number;
+    has_login: boolean;
+  } | null;
 }
 export interface Game {
   id: string;
@@ -83,6 +95,8 @@ export interface Game {
   opening_eco: string | null;
   ply_count: number;
   analysis_status: AnalysisState | null;
+  /** Who added the game: the student themself or a coach; null if not recorded. */
+  added_by: "student" | "coach" | null;
 }
 export interface GameDetail extends Game {
   raw_pgn: string;
@@ -165,6 +179,46 @@ export interface GameAnalysis {
   critical: AnalysisJob | null;
   critical_moves: MoveAnalysis[];
 }
+/** One of the student's mistakes in a game (GET /students/{id}/mistakes). */
+export interface Mistake {
+  ply: number;
+  move_number: number;
+  san: string;
+  verdict: string | null;
+  label: string | null;
+  symbol: string | null;
+  eval_before: { cp: number | null; mate: number | null } | null;
+  eval_after: { cp: number | null; mate: number | null } | null;
+  best_move_san: string | null;
+  best_line_san: string[];
+  reasons: string[];
+  types: {
+    skill_code: string;
+    subskill_code: string | null;
+    motif_kind: string | null;
+    evidence_type: string;
+    earlier: { game_id: string; ply: number; move_number: number; opponent: string; played_at: string | null; acknowledged: boolean }[];
+  }[];
+  acknowledged_at: string | null;
+  flagged_again: { game_id: string; ply: number; move_number: number; opponent: string; played_at: string | null } | null;
+}
+export interface GameMistakes {
+  game_id: string;
+  white_name: string;
+  black_name: string;
+  student_color: "white" | "black" | null;
+  opponent: string;
+  result: string;
+  played_at: string | null;
+  mistakes: Mistake[];
+  acknowledged: number;
+}
+export interface MistakesPage {
+  total_games: number;
+  limit: number;
+  offset: number;
+  games: GameMistakes[];
+}
 export interface Weakness {
   id: string;
   game_id: string;
@@ -240,6 +294,7 @@ export interface CoachingSession {
   validation_status: string;
   created_at: string;
   response_json: Lesson;
+  objective: { skill_code: string; subskill_code: string | null } | null;
 }
 export interface Exercise {
   id: string;

@@ -14,7 +14,7 @@ interface BoardProps {
   threat?: string | null;
   /** Highlight the from/to squares of the move just played, as UCI. */
   lastMove?: string | null;
-  size?: number;
+  size?: number | string;
   id?: string;
 }
 

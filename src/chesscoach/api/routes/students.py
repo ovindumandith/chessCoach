@@ -40,8 +40,12 @@ def list_students(
     db: DbSession, user: CurrentUser, limit: Limit = 50, offset: Offset = 0
 ) -> Page[StudentOut]:
     rows, total = student_service.list_students(db, user, limit=limit, offset=offset)
+    activity = student_service.student_activity(db, [s.id for s in rows])
     return Page(
-        items=[StudentOut.from_model(s) for s in rows], total=total, limit=limit, offset=offset
+        items=[StudentOut.from_model(s, activity.get(s.id)) for s in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -100,8 +104,11 @@ def list_games(
         db, student_id, limit=limit, offset=offset, needs_mapping=needs_mapping
     )
     states = analysis_service.analysis_states(db, [g.id for g in rows])
+    added = game_queries.added_by(db, rows)
     items = [
-        GameSummary.model_validate(g).model_copy(update={"analysis_status": states.get(g.id)})
+        GameSummary.model_validate(g).model_copy(
+            update={"analysis_status": states.get(g.id), "added_by": added.get(g.id)}
+        )
         for g in rows
     ]
     return Page(items=items, total=total, limit=limit, offset=offset)

@@ -22,10 +22,13 @@ def student(client, db):
     ).json()
     report = client.post(
         f"{API}/students/{s['id']}/games/import",
+        headers=client.as_student(s["id"]),
         files={"file": ("g.pgn", PGN, "application/x-chess-pgn")},
     ).json()
     for g in report["games"]:
-        client.post(f"{API}/games/{g['game_id']}/analyze")
+        client.post(
+            f"{API}/games/{g['game_id']}/analyze", headers=client.as_student.game(g["game_id"])
+        )
     while run_once(db, FakeAnalyzer(), Settings(stockfish_depth=8), "w"):
         pass
     return s
@@ -64,6 +67,7 @@ def use(monkeypatch, provider):
 
 
 def lesson(client, sid, **kw):
+    kw.setdefault("headers", client.as_student(sid))  # the student asks; the coach monitors
     return client.post(f"{API}/students/{sid}/coaching/lessons", **kw)
 
 

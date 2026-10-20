@@ -44,10 +44,20 @@ def require_coach_role(user: User) -> None:
         raise ForbiddenError("This action requires a coach account")
 
 
-def require_own_student_record(db: Session, user: User, student_id: uuid.UUID) -> Student:
-    """Only the student's own account may act as the student (e.g. answer exercises), so
-    coach activity never pollutes the student's performance data."""
+def require_own_student_record(
+    db: Session, user: User, student_id: uuid.UUID, *, allow_admin: bool = False
+) -> Student:
+    """Only the student's own account may act as the student: add and analyze games, get
+    lessons, create and answer exercises. Coaches monitor; their activity never pollutes the
+    student's data. `allow_admin` lets operators act for support (imports, analysis)."""
     student = require_student_access(db, user, student_id)
+    if allow_admin and user.role == UserRole.ADMIN:
+        return student
     if get_access_level(db, user, student_id) != AccessLevel.SELF:
         raise ForbiddenError("Only the student's own account can do this")
     return student
+
+
+def require_admin(user: User) -> None:
+    if user.role != UserRole.ADMIN:
+        raise ForbiddenError("This action requires an administrator")

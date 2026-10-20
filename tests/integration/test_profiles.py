@@ -40,11 +40,14 @@ def profiled(client, db, settings):
     ).json()
     report = client.post(
         f"{API}/students/{student['id']}/games/import",
+        headers=client.as_student(student["id"]),
         files={"file": ("g.pgn", PGN, "application/x-chess-pgn")},
     ).json()
     assert report["imported"] == 3
     for g in report["games"]:
-        client.post(f"{API}/games/{g['game_id']}/analyze")
+        client.post(
+            f"{API}/games/{g['game_id']}/analyze", headers=client.as_student.game(g["game_id"])
+        )
     while run_once(db, FakeAnalyzer(), settings, "w"):
         pass
     return student
@@ -94,7 +97,11 @@ def test_rebuild_is_idempotent_until_evidence_changes(client, profiled):
         f"{API}/students/{sid}/weaknesses", params={"skill_code": "tactical_awareness"}
     ).json()["items"]
     for w in weaknesses:
-        client.patch(f"{API}/observations/{w['id']}/review", json={"action": "confirm"})
+        client.patch(
+            f"{API}/observations/{w['id']}/review",
+            json={"action": "confirm"},
+            headers=client.as_admin,
+        )
     assert _profile(client, sid).json()["stale"] is True
 
     new = client.post(f"{API}/students/{sid}/profile/rebuild")

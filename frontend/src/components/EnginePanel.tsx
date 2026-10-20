@@ -5,6 +5,7 @@ import { LiveEngine, type EngineLine, type EngineUpdate } from "../engine";
 import { fmtWhite } from "../verdict";
 
 const MAX_DEPTH = 22;
+const ENGINE_PREF = "chesscoach.engine.on";
 
 function sanLine(fen: string, uci: string[], max = 8): string {
   const chess = new Chess(fen);
@@ -21,17 +22,35 @@ function sanLine(fen: string, uci: string[], max = 8): string {
 }
 
 /** White's share of the winning chances (0-100), standard eval-bar convention. */
-function whiteShare(line: EngineLine | undefined): number {
+export function whiteShare(line: EngineLine | undefined): number {
   if (!line) return 50;
   if (line.mate !== null) return line.mate > 0 ? 100 : 0;
   return 100 / (1 + Math.exp(-0.00368208 * (line.cp ?? 0))); // same curve as the server
 }
 
-export function EnginePanel({ fen, pov }: { fen: string; pov: "white" | "black" }) {
+function readPref(): boolean {
+  try {
+    return localStorage.getItem(ENGINE_PREF) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+/** One live Stockfish (WASM, Web Worker) shared by the eval bar and the line list. */
+export function useLiveEngine(fen: string) {
   const engine = useRef<LiveEngine | null>(null);
-  const [on, setOn] = useState(true);
+  const [on, setOnState] = useState(readPref);
   const [update, setUpdate] = useState<EngineUpdate | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+
+  const setOn = (value: boolean) => {
+    setOnState(value);
+    try {
+      localStorage.setItem(ENGINE_PREF, value ? "on" : "off"); // per-viewer convenience only
+    } catch {
+      /* storage unavailable: the toggle still works for this page */
+    }
+  };
 
   useEffect(() => {
     if (!on) return;
@@ -54,62 +73,78 @@ export function EnginePanel({ fen, pov }: { fen: string; pov: "white" | "black" 
     void engine.current.analyse(fen, MAX_DEPTH);
   }, [fen, on]);
 
-  const best = update?.lines[0];
+  return { on, setOn, update, failed };
+}
+
+/** Vertical eval bar, oriented like the board (your side at the bottom). */
+export function EvalBar({ line, orientation }: { line: EngineLine | undefined; orientation: "white" | "black" }) {
+  const white = whiteShare(line);
+  const label = line ? fmtWhite(line.cp, line.mate) : "";
+  // The bar is narrow: one decimal, like other eval bars. The full value is in the tooltip.
+  const short = !line ? "" : line.mate !== null ? label : `${(line.cp ?? 0) > 0 ? "+" : (line.cp ?? 0) < 0 ? "−" : ""}${Math.abs((line.cp ?? 0) / 100).toFixed(1)}`;
+  return (
+    <div
+      className={`vbar ${orientation}`}
+      role="meter"
+      aria-label="White's share of the winning chances"
+      aria-valuenow={Math.round(white)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      title={label ? `${label} (+ = White better, − = Black better)` : "Live engine off"}
+    >
+      <div className="vbar-white" style={{ height: `${white}%` }} />
+      {short && <span className={`vbar-label ${white >= 50 ? "on-white" : "on-black"}`}>{short}</span>}
+    </div>
+  );
+}
+
+/** Compact list of the engine's best lines for the current position. */
+export function EngineLines({
+  fen,
+  engine,
+}: {
+  fen: string;
+  engine: ReturnType<typeof useLiveEngine>;
+}) {
+  const { on, setOn, update, failed } = engine;
   return (
     <section className="card engine" aria-label="Live engine">
-      <div className="row">
-        <strong>Live engine</strong>
-        <label className="toggle">
-          <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} /> on
-        </label>
+      <div className="card-head">
+        <h2 className="card-title">Live engine</h2>
         {on && update && (
           <span className="muted small">
             depth {update.depth}
             {update.done ? "" : "…"}
           </span>
         )}
+        <label className="toggle">
+          <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} /> on
+        </label>
       </div>
       {failed && <p className="error">Engine failed to start: {failed}</p>}
-      {on && (
-        <>
-          <div className="evalbar-wrap">
-            <span className="small">White{pov === "white" ? " (you)" : ""}</span>
-            <div
-              className="evalbar"
-              role="meter"
-              aria-label="White's share of the winning chances"
-              aria-valuenow={Math.round(whiteShare(best))}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <div className="evalbar-fill" style={{ width: `${whiteShare(best)}%` }} />
-            </div>
-            <span className="small">Black{pov === "black" ? " (you)" : ""}</span>
-          </div>
-          {!update && <p className="muted small">Thinking…</p>}
-          {update?.done && update.lines.length === 0 && (
-            <p className="muted small">No legal moves: the game is over in this position.</p>
-          )}
-          <ol className="engine-lines">
-            {update?.lines.map((l) => (
-              <li key={l.multipv} data-testid="engine-line">
-                <b className="engine-eval">{fmtWhite(l.cp, l.mate)}</b> {sanLine(fen, l.pv)}
-              </li>
-            ))}
-          </ol>
-        </>
+      {on && !update && <p className="muted small">Thinking…</p>}
+      {on && update?.done && update.lines.length === 0 && (
+        <p className="muted small">No legal moves: the game is over in this position.</p>
       )}
-      <p className="muted small">
-        Stockfish 19 lite, running in your browser. + means White is better, − means Black is better
-        (−9.49 = Black is ahead by about 9.5 pawns). For exploring only: your profile uses the stored server analysis. Engine licence:{" "}
+      {on && (
+        <ol className="engine-lines">
+          {update?.lines.map((l) => (
+            <li key={l.multipv} data-testid="engine-line">
+              <b className="engine-eval">{fmtWhite(l.cp, l.mate)}</b> {sanLine(fen, l.pv)}
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="muted tiny">
+        Stockfish 19 lite in your browser · + White better, − Black better · exploring only, your profile uses the
+        stored analysis ·{" "}
         <a href="/engine/Copying.txt" target="_blank" rel="noreferrer">
           GPLv3
-        </a>
-        , source{" "}
+        </a>{" "}
+        ·{" "}
         <a href="https://github.com/nmrugg/stockfish.js" target="_blank" rel="noreferrer">
-          stockfish.js
+          source
         </a>
-        .
       </p>
     </section>
   );

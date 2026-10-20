@@ -23,10 +23,13 @@ def student(client, db, make_user):
     s = client.post(f"{API}/students", json={"display_name": "S", "aliases": ["Ovindu"]}).json()
     report = client.post(
         f"{API}/students/{s['id']}/games/import",
+        headers=client.as_student(s["id"]),
         files={"file": ("g.pgn", PGN, "application/x-chess-pgn")},
     ).json()
     for g in report["games"]:
-        client.post(f"{API}/games/{g['game_id']}/analyze")
+        client.post(
+            f"{API}/games/{g['game_id']}/analyze", headers=client.as_student.game(g["game_id"])
+        )
     while run_once(db, FakeAnalyzer(), Settings(stockfish_depth=8), "w"):
         pass
     learner = make_user("learner@example.com", UserRole.STUDENT)
@@ -40,7 +43,9 @@ def student(client, db, make_user):
 
 
 def create(client, sid, **body):
-    return client.post(f"{API}/students/{sid}/exercises", json=body or None)
+    return client.post(
+        f"{API}/students/{sid}/exercises", json=body or None, headers=client.as_student(sid)
+    )
 
 
 def test_review_exercises_from_own_mistakes_with_hidden_solutions(client, student):
@@ -155,7 +160,7 @@ def test_progress_profile_and_coaching_see_results(client, student, monkeypatch)
 
     provider = MockProvider(grounded)
     monkeypatch.setattr("chesscoach.coaching.service.get_provider", lambda s: provider)
-    client.post(f"{API}/students/{sid}/coaching/lessons")
+    client.post(f"{API}/students/{sid}/coaching/lessons", headers=client.as_student(sid))
     history = provider.calls[0]["context"]["exercise_history"]
     assert {h["status"] for h in history} == {"solved"}
     assert sorted(h["first_try_correct"] for h in history) == [False, True]

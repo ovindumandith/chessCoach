@@ -31,11 +31,12 @@ def games(client, db):
     s = client.post(f"{API}/students", json={"display_name": "S", "aliases": ["Me"]}).json()
     report = client.post(
         f"{API}/students/{s['id']}/games/import",
+        headers=client.as_student(s["id"]),
         files={"file": ("g.pgn", PGN, "application/x-chess-pgn")},
     ).json()
     ids = {g["index"]: g["game_id"] for g in report["games"]}
     for gid in ids.values():
-        client.post(f"{API}/games/{gid}/analyze")
+        client.post(f"{API}/games/{gid}/analyze", headers=client.as_student.game(gid))
     while run_once(db, FakeAnalyzer(), Settings(stockfish_depth=8), "w"):
         pass
     return s, ids
@@ -86,7 +87,11 @@ def test_game_without_the_mistake_is_never_linked(client, games):
 def test_rejected_findings_are_not_linked(client, games):
     s, ids = games
     first = mate_finding(client, ids[0])
-    client.patch(f"{API}/observations/{first['observation_id']}/review", json={"action": "reject"})
+    client.patch(
+        f"{API}/observations/{first['observation_id']}/review",
+        json={"action": "reject"},
+        headers=client.as_admin,
+    )
     linked = [e["opponent"] for e in mate_finding(client, ids[3])["same_mistake_elsewhere"]]
     assert linked == ["Carol"]
 

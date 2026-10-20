@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from chesscoach.analysis.game_analyzer import ANALYSIS_VERSION
-from chesscoach.core.access import require_student_access
+from chesscoach.core.access import require_admin, require_own_student_record, require_student_access
 from chesscoach.core.audit import record_audit
 from chesscoach.core.errors import ConflictError, NotFoundError
 from chesscoach.db.enums import AnalysisPass, JobStatus, MappingStatus
@@ -34,7 +34,11 @@ def queue_game_analysis(
     db: Session, user: User, game_id: uuid.UUID, *, force: bool = False
 ) -> QueueResult:
     game = _get_game(db, game_id)
-    require_student_access(db, user, game.student_id, coach_only=True)
+    # Students queue their own games. Forcing a re-run of a finished analysis (extra engine
+    # time, new analysis rows) is an operator action.
+    require_own_student_record(db, user, game.student_id, allow_admin=True)
+    if force:
+        require_admin(user)
     if game.mapping_status not in RESOLVED or game.student_color is None:
         raise ConflictError(
             "The student's color in this game must be confirmed before analysis",

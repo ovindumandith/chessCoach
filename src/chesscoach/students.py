@@ -9,8 +9,15 @@ from chesscoach.core.access import require_coach_role, require_student_access
 from chesscoach.core.audit import record_audit
 from chesscoach.core.errors import ConflictError
 from chesscoach.db.enums import AccessLevel, UserRole
-from chesscoach.db.models import Student, StudentAccess, StudentAlias, User
+from chesscoach.db.models import (
+    Game,
+    Student,
+    StudentAccess,
+    StudentAlias,
+    User,
+)
 from chesscoach.ingestion.pgn_parser import normalize_name
+from chesscoach.mistakes import open_mistake_counts
 
 
 def create_student(
@@ -79,6 +86,55 @@ def list_students(db: Session, user: User, *, limit: int, offset: int) -> tuple[
         query.order_by(Student.display_name, Student.id).limit(limit).offset(offset)
     ).all()
     return list(rows), total
+
+
+def student_activity(db: Session, student_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict]:
+    """Per-student counts for the coach's overview. Callers have already checked access
+    (the ids come from `list_students`)."""
+    if not student_ids:
+        return {}
+    out = {
+        sid: {
+            "games": 0,
+            "games_by_student": 0,
+            "last_student_upload": None,
+            "mistakes": 0,
+            "open_mistakes": 0,
+            "has_login": False,
+        }
+        for sid in student_ids
+    }
+    for sid, n in db.execute(
+        select(Game.student_id, func.count())
+        .where(Game.student_id.in_(student_ids))
+        .group_by(Game.student_id)
+    ):
+        out[sid]["games"] = n
+    # Games the student added themself: imported by a user holding SELF access to that record.
+    for sid, n, last in db.execute(
+        select(Game.student_id, func.count(), func.max(Game.created_at))
+        .join(
+            StudentAccess,
+            (StudentAccess.user_id == Game.imported_by)
+            & (StudentAccess.student_id == Game.student_id)
+            & (StudentAccess.access_level == AccessLevel.SELF),
+        )
+        .where(Game.student_id.in_(student_ids))
+        .group_by(Game.student_id)
+    ):
+        out[sid]["games_by_student"] = n
+        out[sid]["last_student_upload"] = last
+    for sid, c in open_mistake_counts(db, student_ids).items():
+        out[sid]["mistakes"] = c["mistakes"]
+        out[sid]["open_mistakes"] = c["mistakes"] - c["acknowledged"]
+    for (sid,) in db.execute(
+        select(StudentAccess.student_id).where(
+            StudentAccess.student_id.in_(student_ids),
+            StudentAccess.access_level == AccessLevel.SELF,
+        )
+    ):
+        out[sid]["has_login"] = True
+    return out
 
 
 def _dedupe_aliases(aliases: list[str]) -> list[str]:

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { errorText, post, type Page, type Student } from "../api";
-import { Empty, ErrorBox, Loading } from "../components/ui";
+import { Badge, Empty, ErrorBox, Loading } from "../components/ui";
 import { useLoad } from "../hooks";
 
 export function Students() {
@@ -43,6 +43,10 @@ export function Students() {
               <th>Name</th>
               <th>PGN names</th>
               <th>Level</th>
+              <th>Games</th>
+              <th>Added by the student</th>
+              <th>Open mistakes</th>
+              <th>Student login</th>
             </tr>
           </thead>
           <tbody>
@@ -53,6 +57,39 @@ export function Students() {
                 </td>
                 <td>{s.aliases.join(", ") || <span className="muted">none</span>}</td>
                 <td>{s.skill_level ?? "–"}</td>
+                <td>{s.activity?.games ?? "–"}</td>
+                <td>
+                  {s.activity?.games_by_student ? (
+                    <span className="row">
+                      <Badge kind="ok">{s.activity.games_by_student}</Badge>
+                      {s.activity.last_student_upload && (
+                        <span className="muted small">latest {s.activity.last_student_upload.slice(0, 10)}</span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="muted">–</span>
+                  )}
+                </td>
+                <td>
+                  {s.activity?.mistakes ? (
+                    <Link to={`/students/${s.id}?tab=mistakes`} title="Mistakes the student has not acknowledged yet">
+                      <Badge kind={s.activity.open_mistakes ? "warn" : "ok"}>
+                        {s.activity.open_mistakes} of {s.activity.mistakes}
+                      </Badge>
+                    </Link>
+                  ) : (
+                    <span className="muted">–</span>
+                  )}
+                </td>
+                <td>
+                  {s.activity?.has_login ? (
+                    "yes"
+                  ) : (
+                    <Link to={`/students/${s.id}?tab=account`} className="small">
+                      create one
+                    </Link>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

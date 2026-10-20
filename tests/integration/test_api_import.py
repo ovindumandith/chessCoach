@@ -2,10 +2,12 @@
 
 from sqlalchemy import select
 
-from chesscoach.db.enums import AccessLevel, UserRole
-from chesscoach.db.models import AuditEvent, StudentAccess
+from chesscoach.api.deps import DEV_COACH_EMAIL
+from chesscoach.db.enums import UserRole
+from chesscoach.db.models import AuditEvent
 
 API = "/api/v1"
+COACH = {"X-Dev-User-Email": DEV_COACH_EMAIL}  # the development stub's coach
 
 
 def _create_student(client, name="Ovindu", aliases=("Ovindu", "ovindu_m"), headers=None):
@@ -17,10 +19,11 @@ def _create_student(client, name="Ovindu", aliases=("Ovindu", "ovindu_m"), heade
 
 
 def _upload(client, student_id, data, filename="games.pgn", headers=None):
+    """Upload as the student themself unless other headers are given (coaches can't upload)."""
     return client.post(
         f"{API}/students/{student_id}/games/import",
         files={"file": (filename, data, "application/x-chess-pgn")},
-        headers=headers,
+        headers=headers or client.as_student(student_id),
     )
 
 
@@ -101,7 +104,11 @@ def test_confirm_ambiguous_mapping(client, mixed_pgn):
     student = _create_student(client)
     report = _upload(client, student["id"], mixed_pgn).json()
     ambiguous_id = next(g["game_id"] for g in report["games"] if g["index"] == 4)
-    resp = client.patch(f"{API}/games/{ambiguous_id}/mapping", json={"student_color": "black"})
+    resp = client.patch(
+        f"{API}/games/{ambiguous_id}/mapping",
+        json={"student_color": "black"},
+        headers=client.as_student(student["id"]),
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["mapping_status"] == "confirmed"
@@ -149,23 +156,72 @@ def test_cross_user_access_denied(client, mixed_pgn, make_user, db):
     assert client.get(f"{API}/students", headers=other).json()["total"] == 0
 
 
-def test_student_self_access_is_read_only(client, mixed_pgn, make_user, db):
-    import uuid
+OWN_GAMES = b"""[Event "Online"]
+[Date "2024.05.02"]
+[White "ovindu_m"]
+[Black "Rival"]
+[Result "1-0"]
 
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 1-0
+
+[Event "Online"]
+[Date "2024.05.03"]
+[White "Anon1"]
+[Black "Anon2"]
+[Result "0-1"]
+
+1. d4 d5 0-1
+"""
+
+
+def test_students_add_and_analyze_games_coaches_monitor(client, mixed_pgn, make_user, db):
     student = _create_student(client)
-    _upload(client, student["id"], mixed_pgn)
-    learner = make_user("learner@example.com", UserRole.STUDENT)
-    db.add(
-        StudentAccess(
-            user_id=learner.id, student_id=uuid.UUID(student["id"]), access_level=AccessLevel.SELF
-        )
-    )
-    db.commit()
-    me = {"X-Dev-User-Email": "learner@example.com"}
+    other = _create_student(client, "Other", ["Opponent A"])
+    _upload(client, other["id"], OWN_GAMES)  # a file this student has never imported
+    me = client.as_student(student["id"])
 
-    assert client.get(f"{API}/students/{student['id']}/games", headers=me).status_code == 200
-    assert _upload(client, student["id"], mixed_pgn, headers=me).status_code == 403
+    # Coaches do not add or analyze games: they monitor what the student adds.
+    assert _upload(client, student["id"], OWN_GAMES, headers=COACH).status_code == 403
+
+    report = _upload(client, student["id"], OWN_GAMES, headers=me)
+    assert report.status_code == 201, report.text
+    body = report.json()
+    assert body["imported"] == 1 and body["needs_mapping"] == 1
+    # Another student's earlier import of the same file is not revealed.
+    assert body["file_previously_uploaded"] is False
+    # The coach sees the student's games, marked as added by the student.
+    games = client.get(f"{API}/students/{student['id']}/games").json()["items"]
+    assert {g["added_by"] for g in games} == {"student"}
+
+    unmatched = next(g["game_id"] for g in body["games"] if g["status"] == "needs_mapping")
+    mapped = next(g["game_id"] for g in body["games"] if g["status"] == "imported")
+    mapping = f"{API}/games/{unmatched}/mapping"
+    assert client.patch(mapping, json={"student_color": "white"}, headers=COACH).status_code == 403
+    resp = client.patch(mapping, json={"student_color": "white"}, headers=me)
+    assert resp.status_code == 200 and resp.json()["mapping_status"] == "confirmed"
+    assert client.post(f"{API}/games/{mapped}/analyze", headers=COACH).status_code == 403
+    assert client.post(f"{API}/games/{mapped}/analyze", headers=me).status_code == 202
+    # Lessons and exercises are the student's too; the coach can still read them.
+    assert client.post(f"{API}/students/{student['id']}/coaching/lessons").status_code == 403
+    assert client.post(f"{API}/students/{student['id']}/exercises").status_code == 403
+    assert client.get(f"{API}/students/{student['id']}/coaching/sessions").status_code == 200
+
+    # The coach's overview shows the student's activity.
+    row = next(r for r in client.get(f"{API}/students").json()["items"] if r["id"] == student["id"])
+    assert row["activity"]["games"] == row["activity"]["games_by_student"] == 2
+    assert row["activity"]["last_student_upload"] is not None
+    assert row["activity"]["has_login"] is True
+    assert row["activity"]["mistakes"] == row["activity"]["open_mistakes"] == 0  # not analyzed
+
+    # The student stays confined to their own record, with no coach-only actions.
+    assert _upload(client, other["id"], mixed_pgn, headers=me).status_code == 403
     assert client.post(f"{API}/students", json={"display_name": "x"}, headers=me).status_code == 403
+    assert (
+        client.delete(
+            f"{API}/students/{student['id']}", params={"confirm": "Ovindu"}, headers=me
+        ).status_code
+        == 403
+    )
 
 
 def test_unknown_student_is_404(client):

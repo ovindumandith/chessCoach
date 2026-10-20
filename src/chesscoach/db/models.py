@@ -182,6 +182,12 @@ class Game(Base):
     pgn_headers: Mapped[dict[str, Any]] = mapped_column(default=dict)
     raw_pgn: Mapped[str] = mapped_column(Text)
     import_warnings: Mapped[list[Any]] = mapped_column(default=list)
+    # Who added this game for this student. Per game, not the file's uploader: identical files
+    # are stored once and may be imported for several students by different people. NULL for
+    # games imported before this was recorded (not guessed).
+    imported_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
 
     source_file: Mapped[SourceFile] = relationship()
@@ -251,6 +257,30 @@ class MoveAnalysis(Base):
 
 
 # --------------------------------------------------------------------------- weaknesses & profiles
+
+
+class MistakeAcknowledgement(Base):
+    """The student has seen and acknowledged their mistake on this move.
+
+    Keyed by (game, ply), not by observation, so re-analysis and reclassification never lose
+    it. Display and coach monitoring only: it does not change any finding or profile.
+    """
+
+    __tablename__ = "mistake_acknowledgements"
+    __table_args__ = (UniqueConstraint("game_id", "ply", name="uq_mistake_ack_game_ply"),)
+
+    id: Mapped[uuid.UUID] = _pk()
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    game_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("games.id", ondelete="CASCADE"), index=True
+    )
+    ply: Mapped[int] = mapped_column(Integer)
+    acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    acknowledged_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class WeaknessObservation(Base):

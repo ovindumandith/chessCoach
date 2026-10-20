@@ -48,7 +48,8 @@ docker compose exec backend python -m chesscoach.bootstrap --email you@example.o
 
 Open http://localhost:8080 and sign in. Then:
 1. Create coach accounts (`POST /api/v1/users`, admin only).
-2. Coaches add students, import PGNs, and give each student a login from the student's **Account** tab.
+2. Coaches add students and give each student a login from the student's **Account** tab.
+3. Students sign in, add and analyze their own games, go through their mistakes game by game, and get AI training recommendations and exercises. Coaches monitor: each student's games, mistakes and recommendations, plus the mistakes across all their students.
 
 This starts:
 - `frontend`: the React app served by nginx on port 8080, which proxies `/api` to the backend
@@ -134,17 +135,19 @@ ruff check src tests && ruff format --check src tests
 
 ## Analysing your games
 
-1. Sign in as a coach and add a student, with **PGN player names** set exactly as they appear in your PGN files.
-2. Open the student, go to **Games → Import PGN**, then click **Analyze** on each game.
+1. Sign in as a coach and add a student, with **PGN player names** set exactly as they appear in your PGN files. On the student's **Account** tab, create their login.
+2. Sign in as the student. In **My games**, upload a PGN, then click **Analyze all**. The list updates by itself while Stockfish works.
 3. Open **View** for a game:
    - every move shows the stored Stockfish verdict
    - a **live engine** runs in your browser
    - you can drag pieces to explore lines
    - mistakes you've made before link to those earlier games
+4. As the student: **My mistakes** lists each analyzed game's mistakes with the reason and the better move. **Acknowledge** each one; if you repeat a kind of mistake you acknowledged before, it's flagged "again". **Exercises** shows the AI coach's recommendation, and **Practise this** builds exercises from your own positions.
+5. As the coach: the student list shows each student's activity and open mistakes, **Mistakes across students** groups mistakes over all your students, and each student's **Mistakes** and **Recommendations** tabs show what they see, read-only.
 
 ## End-to-end tests
 
-A browser drives the real UI against the running stack: coach import → analysis → review → profile → lesson → student login → solving an exercise by dragging a piece.
+A browser drives the real UI against the running stack: the coach creates a student and their login → the student adds and analyzes games, acknowledges a mistake, gets the AI recommendation and solves an exercise by dragging a piece → the coach monitors activity, the student's mistakes and recommendations, and the mistakes across students.
 
 ```bash
 docker compose up -d

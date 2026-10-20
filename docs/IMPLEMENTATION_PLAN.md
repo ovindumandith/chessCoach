@@ -178,7 +178,7 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
   - every quoted evaluation or "mate in N" matches stored values
   - the student question doesn't reveal the solution
   - a database check that every referenced game belongs to the student
-- **Flow:** generate → validate → one regeneration with the rejection reasons → otherwise a **deterministic template lesson** (`template-v1`) built from the same evidence. The template is itself validated before anything is returned.
+- **Flow:** generate → validate → one regeneration with the rejection reasons → otherwise a **deterministic template lesson** built from the same evidence (`template-v2` since findings stopped being reviewed). The template is itself validated before anything is returned.
 - **Every request** is stored as a `coaching_sessions` row: provider and model, prompt version, evidence references, context hash, every attempt with its errors, token usage, and latency. An audit event is written too.
 - **API:** `POST /students/{id}/coaching/lessons` (optional `skill_code`) and `GET /students/{id}/coaching/sessions`. Students can request their own lessons.
 - Verified on PostgreSQL with real Stockfish evidence through the template path. Not yet run against a live LLM, because no credentials are configured.
@@ -246,7 +246,7 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 - CORS allows only configured origins, with no cookies. The Docker frontend is same-origin through nginx.
 
 **Frontend** (`frontend/`: React 19, TypeScript strict, Vite 8, react-chessboard 5, chess.js 1, react-router 7; exact versions at least two weeks old, installed with `--ignore-scripts`)
-- **Coach:** student list and creation. Per student, seven tabs:
+- **Coach** (superseded by the role split in Post-MVP additions: coaches now monitor, students add games and get lessons). Originally: student list and creation, and per student seven tabs:
   - Games: PGN import with the report, colour confirmation, Analyze
   - Review findings: a board with played and engine-best arrows, confirm, reject, or correct against the taxonomy
   - Profile: states, rates, priority, exercise accuracy, rebuild and stale flag
@@ -345,7 +345,43 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
   - verified forks and undefended pieces in the better move or the reply
   - otherwise an honest "positional" statement with the engine's margin
 - **Standard notation everywhere:** + = White better, − = Black better, #3 / #−3 for mates. The words name the student's colour ("you (Black) were winning").
+- **One-screen workspace:**
+  - The left column holds the key moments (one line that scrolls sideways), a vertical eval bar beside the board (oriented like the board, one decimal), the navigation row with the keyboard hint, and the graph.
+  - The right column holds the live engine at the top, then this move's verdict and "why", then the move list, which fills the remaining height.
+  - Both columns are sticky. The board size comes from the viewport (`--board-size` / `--chrome` in `styles.css`).
+  - Stepping never scrolls the page: the move list scrolls itself to the active move.
+  - `e2e/layout.spec.ts` checks the fit and the zero page scroll at 1366×768, 1536×864 and 1920×1080. Set `LAYOUT_SHOTS=<dir>` to save screenshots.
+  - Fixed along the way: key presses were still dropped occasionally. A router-driven URL update is asynchronous, and live-engine re-renders in between read a stale ply. The ply now lives in component state and is mirrored to the URL with `history.replaceState`; a real navigation (`?ply=` from a link) still wins.
 - Browser tests cover both: the engine finds **#1 Qxf7#**, explore mode handles a finished game, and the earlier game opens at the linked move. The e2e harness signs the admin in once per run, because the 10-per-15-minutes login throttle tripped on repeated runs.
+- **Roles: students act, coaches monitor. Nobody reviews findings.**
+
+  | Action | Student (own record) | Coach | Admin |
+  |---|---|---|---|
+  | Add PGNs, confirm their side, queue analysis | yes | no, read-only | yes (support) |
+  | Forced re-analysis (`force=true`) | no | no | yes |
+  | See mistakes game by game (`GET /students/{id}/mistakes`) | yes | yes, read-only, with acknowledgements | yes |
+  | Acknowledge a mistake (`PUT`/`DELETE /games/{id}/mistakes/{ply}/acknowledgement`) | yes | no | no |
+  | AI training recommendation (lesson, full LLM output) | yes, in Exercises | reads every one, with model and validation status | no |
+  | Create and solve exercises | yes | no | no |
+  | Confirm, reject or correct findings | no | no | yes, research labelling only |
+  | Create students, aliases, logins; delete data | no | yes | yes |
+  | Mistakes across students (`GET /cohort/mistakes`) | no | own students only | all |
+
+  - **Product decision (2026-10-21):** findings are not reviewed or approved by anyone. The student sees them straight away and acknowledges them. This replaces the earlier "candidates until a coach confirms them" principle (see `AGENTS.md`). The review endpoint stays for administrators, because research evaluation still needs human gold labels; it is not part of the product UI.
+  - The profile is unchanged (`profile-v1`): unreviewed findings keep their weight of 0.5. Since every finding is now unreviewed, that weight applies uniformly, so rankings are unaffected. The profile is rebuilt automatically after each analysis, and nobody rebuilds it by hand.
+  - **Mistakes** (`mistakes.py`): a mistake is one of the student's moves with a current finding. The classifier stores one for every non-forced move from inaccuracy upwards, as `unclassified` when no cause is verified. Mistakes are grouped by analyzed game, newest first, paged by game. Each one has:
+    - the verdict, the evaluation before and after, the better move and line, and the board-derived "why" (from `annotation/`)
+    - the mistake types and earlier occurrences (from the findings)
+    - its acknowledgement
+    - `flagged_again`: the earlier acknowledged mistake of the same kind (same skill, subskill and motif kind), when there is one
+  - **Acknowledgements** (`mistake_acknowledgements`, migration `2ab0d3d6f02f`): one row per (game, ply), keyed by move rather than by finding, so re-analysis and reclassification never lose them. Only the student's own login can acknowledge, and only their own moves. Acknowledging is audited and never changes a finding or the profile. Deleted with the student.
+  - **Exercises tab (student):** the latest AI recommendation in full (objective, positions from their games, "Your turn", the recommended practice, follow-up, what is known or not), with "New recommendation". "Practise this" creates exercises for exactly the recommendation's skill and subskill (`objective` on `CoachingSessionOut`), and lists them under "For this recommendation". The template fallback is now `template-v2`, which drops the coach-review wording.
+  - **Mistakes across students** (`cohort.py`): the coach's own students' current findings, grouped by skill and subskill, with the students affected, acknowledged and open counts, and the three most recent examples linked to the exact move. Unexplained errors are listed last.
+  - `games.imported_by` (migration `3d1950a20ab5`, nullable) records who added each game. It's per game because identical files are stored once and can be imported for several students. Older games stay NULL rather than being guessed. The games list returns `added_by` ("student", "coach" or null), a role and never an identity.
+  - `file_previously_uploaded` reflects only this student's own imports.
+  - **Student UI:** My games, My mistakes, Exercises, My profile, Progress. A new student lands on My games, and a student with games lands on My mistakes. A getting-started card shows until the first game is analyzed.
+  - **Coach UI:** top navigation has Students and Mistakes across students. The student list shows games, games added by the student, open mistakes (not yet acknowledged, out of the total) and whether there is a login. Per student: Games, Mistakes, Profile, Recommendations, Progress and Account, all read-only except Account.
+  - Tests act as the student with `client.as_student(student_id)` and label as an admin with `client.as_admin` (`tests/conftest.py`). The e2e specs set up a coach, student and login through `e2e/helpers.ts`.
 
 ### Known limitations (MVP)
 

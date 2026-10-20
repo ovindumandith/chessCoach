@@ -31,6 +31,7 @@ from chesscoach.db.models import (
     ExerciseAttempt,
     Game,
     LearningPlan,
+    MistakeAcknowledgement,
     MoveAnalysis,
     ProfileSnapshot,
     SkillOpportunity,
@@ -107,6 +108,10 @@ def delete_student(
     )
     run(
         "profile_snapshots", delete(ProfileSnapshot).where(ProfileSnapshot.student_id == student_id)
+    )
+    run(
+        "mistake_acknowledgements",
+        delete(MistakeAcknowledgement).where(MistakeAcknowledgement.student_id == student_id),
     )
     run("move_analyses", delete(MoveAnalysis).where(MoveAnalysis.analysis_run_id.in_(run_ids)))
     run("analysis_runs", delete(AnalysisRun).where(AnalysisRun.id.in_(run_ids)))

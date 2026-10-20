@@ -33,10 +33,11 @@ def classified(client, db, settings):
     ).json()
     report = client.post(
         f"{API}/students/{student['id']}/games/import",
+        headers=client.as_student(student["id"]),
         files={"file": ("m.pgn", MISSED_MATE_PGN, "application/x-chess-pgn")},
     ).json()
     game_id = report["games"][0]["game_id"]
-    client.post(f"{API}/games/{game_id}/analyze")
+    client.post(f"{API}/games/{game_id}/analyze", headers=client.as_student.game(game_id))
     run_once(db, FakeAnalyzer(), settings, "w")  # baseline: critical pass queued, no classify
     assert client.get(f"{API}/students/{student['id']}/weaknesses").json()["total"] == 0
     run_once(db, FakeAnalyzer(), settings, "w")  # critical pass, then automatic classification
@@ -84,6 +85,7 @@ def test_review_confirm_reject_correct(client, db, classified):
 
     confirmed = client.patch(
         f"{API}/observations/{mate['id']}/review",
+        headers=client.as_admin,
         json={"action": "confirm", "note": "Classic Qxf7# pattern"},
     ).json()
     assert confirmed["review_status"] == "confirmed"
@@ -92,14 +94,20 @@ def test_review_confirm_reject_correct(client, db, classified):
 
     bad = client.patch(
         f"{API}/observations/{other['id']}/review",
+        headers=client.as_admin,
         json={"action": "correct", "skill_code": "not_a_skill"},
     )
     assert bad.status_code == 422
-    missing = client.patch(f"{API}/observations/{other['id']}/review", json={"action": "correct"})
+    missing = client.patch(
+        f"{API}/observations/{other['id']}/review",
+        json={"action": "correct"},
+        headers=client.as_admin,
+    )
     assert missing.status_code == 422
 
     corrected = client.patch(
         f"{API}/observations/{other['id']}/review",
+        headers=client.as_admin,
         json={
             "action": "correct",
             "skill_code": "opening_knowledge",
@@ -118,10 +126,15 @@ def test_reclassify_preserves_reviews_without_duplicates(client, classified):
     student, game_id = classified
     before = _weaknesses(client, student["id"])["items"]
     target = before[0]
-    client.patch(f"{API}/observations/{target['id']}/review", json={"action": "confirm"})
+    client.patch(
+        f"{API}/observations/{target['id']}/review",
+        json={"action": "confirm"},
+        headers=client.as_admin,
+    )
     corrected_target = before[1]
     client.patch(
         f"{API}/observations/{corrected_target['id']}/review",
+        headers=client.as_admin,
         json={
             "action": "correct",
             "skill_code": "calculation",
@@ -149,7 +162,11 @@ def test_reclassify_preserves_reviews_without_duplicates(client, classified):
 def test_student_never_sees_rejected_findings(client, db, classified, make_user):
     student, _ = classified
     items = _weaknesses(client, student["id"])["items"]
-    client.patch(f"{API}/observations/{items[0]['id']}/review", json={"action": "reject"})
+    client.patch(
+        f"{API}/observations/{items[0]['id']}/review",
+        json={"action": "reject"},
+        headers=client.as_admin,
+    )
 
     learner = make_user("learner@example.com", UserRole.STUDENT)
     db.add(
@@ -194,6 +211,7 @@ def test_classify_without_analysis_is_conflict(client, mixed_pgn):
     ).json()
     report = client.post(
         f"{API}/students/{student['id']}/games/import",
+        headers=client.as_student(student["id"]),
         files={"file": ("g.pgn", mixed_pgn, "application/x-chess-pgn")},
     ).json()
     game_id = report["games"][0]["game_id"]
@@ -209,17 +227,24 @@ def test_reviews_carry_forward_to_a_new_classifier_version(client, db, classifie
     assert len(items) >= 3
     confirm, correct, reject = items[0], items[1], items[2]
     client.patch(
-        f"{API}/observations/{confirm['id']}/review", json={"action": "confirm", "note": "seen it"}
+        f"{API}/observations/{confirm['id']}/review",
+        json={"action": "confirm", "note": "seen it"},
+        headers=client.as_admin,
     )
     client.patch(
         f"{API}/observations/{correct['id']}/review",
+        headers=client.as_admin,
         json={
             "action": "correct",
             "skill_code": "calculation",
             "subskill_code": "variation_accuracy",
         },
     )
-    client.patch(f"{API}/observations/{reject['id']}/review", json={"action": "reject"})
+    client.patch(
+        f"{API}/observations/{reject['id']}/review",
+        json={"action": "reject"},
+        headers=client.as_admin,
+    )
 
     # Pretend all existing rows came from an older classifier.
     for obs in db.scalars(select(WeaknessObservation)).all():

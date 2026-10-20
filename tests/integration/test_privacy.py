@@ -7,7 +7,6 @@ from sqlalchemy import func, select
 from chesscoach.analysis.worker import run_once
 from chesscoach.core.config import Settings
 from chesscoach.db import models as m
-from chesscoach.db.enums import AccessLevel, UserRole
 from tests.fakes import FakeAnalyzer
 from tests.integration.test_profiles import PGN
 
@@ -25,11 +24,14 @@ def setup_student(client, db, name, aliases, data=PGN):
     s = client.post(f"{API}/students", json={"display_name": name, "aliases": aliases}).json()
     report = client.post(
         f"{API}/students/{s['id']}/games/import",
+        headers=client.as_student(s["id"]),
         files={"file": ("g.pgn", data, "application/x-chess-pgn")},
     ).json()
     for g in report["games"]:
         if g["game_id"] and g["status"] == "imported":
-            client.post(f"{API}/games/{g['game_id']}/analyze")
+            client.post(
+                f"{API}/games/{g['game_id']}/analyze", headers=client.as_student.game(g["game_id"])
+            )
     while run_once(db, FakeAnalyzer(), Settings(stockfish_depth=8), "w"):
         pass
     return s
@@ -41,18 +43,18 @@ def test_delete_student_removes_everything_derived(client, db, storage_dir, make
     keeper = setup_student(client, db, "Keeper", ["Opp1", "Opp2", "Opp3"])
     vid, kid = uuid.UUID(victim["id"]), uuid.UUID(keeper["id"])
 
-    # Exercises, attempts, a lesson and a student login for the victim.
-    learner = make_user("victim@example.com", UserRole.STUDENT)
+    # Exercises, attempts and a lesson from the victim's own login (the one that added the games).
+    victim_h = client.as_student(victim["id"])
+    learner = db.scalar(select(m.User).where(m.User.email == victim_h["X-Dev-User-Email"]))
     learner.password_hash = "scrypt$x"
-    db.add(m.StudentAccess(user_id=learner.id, student_id=vid, access_level=AccessLevel.SELF))
     db.commit()
-    ex = client.post(f"{API}/students/{victim['id']}/exercises").json()[0]
-    client.post(
-        f"{API}/exercises/{ex['id']}/attempts",
-        json={"move": "Qxf7#"},
-        headers={"X-Dev-User-Email": "victim@example.com"},
-    )
-    client.post(f"{API}/students/{victim['id']}/coaching/lessons")
+    ex = client.post(f"{API}/students/{victim['id']}/exercises", headers=victim_h).json()[0]
+    client.post(f"{API}/exercises/{ex['id']}/attempts", json={"move": "Qxf7#"}, headers=victim_h)
+    client.post(f"{API}/students/{victim['id']}/coaching/lessons", headers=victim_h)
+    first = client.get(f"{API}/students/{victim['id']}/mistakes", headers=victim_h).json()
+    g = next(g for g in first["games"] if g["mistakes"])
+    ack = f"{API}/games/{g['game_id']}/mistakes/{g['mistakes'][0]['ply']}/acknowledgement"
+    assert client.put(ack, headers=victim_h).status_code == 200
     assert count(db, m.WeaknessObservation, student_id=vid) > 0
     assert count(db, m.ProfileSnapshot, student_id=vid) > 0
     keeper_games_before = count(db, m.Game, student_id=kid)
@@ -64,6 +66,8 @@ def test_delete_student_removes_everything_derived(client, db, storage_dir, make
     assert resp.status_code == 200
     deleted = resp.json()["deleted"]
     assert deleted["games"] == 3 and deleted["exercises"] >= 1 and deleted["coaching_sessions"] == 1
+    assert deleted["mistake_acknowledgements"] == 1
+    assert count(db, m.MistakeAcknowledgement, student_id=vid) == 0
     assert deleted["student_logins_anonymised"] == 1
 
     db.expire_all()

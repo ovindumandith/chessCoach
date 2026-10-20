@@ -156,7 +156,7 @@ def test_fallback_lesson_always_validates():
     lesson = build_fallback(ctx)
     assert validate_response(lesson, ctx) == []
     assert {e.game_id for e in lesson.examples} == {"g1", "g2"}
-    assert "not been reviewed" in lesson.uncertainty
+    assert "no person has checked them" in lesson.uncertainty
 
 
 def test_strict_schema_is_closed_and_ref_free():

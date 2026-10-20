@@ -5,7 +5,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { post, skillLabel, type Annotation, type AnalysisStatus, type GameAnnotations, type GameDetail } from "../api";
 import { IN_PROGRESS } from "../components/AnalysisBadge";
 import { Board } from "../components/Board";
-import { EnginePanel } from "../components/EnginePanel";
+import { EngineLines, EvalBar, useLiveEngine } from "../components/EnginePanel";
 import { EvalGraph, type GraphPoint } from "../components/EvalGraph";
 import { ActionButton, Badge, ErrorBox, Loading } from "../components/ui";
 import { useLoad, usePoll, useTaxonomy } from "../hooks";
@@ -55,7 +55,7 @@ const moveLabel = (ply: number, san: string) => `${Math.ceil(ply / 2)}${ply % 2 
  * Keyboard: ↓/→ next move, ↑/← previous, Home/End, N/P next/previous key moment, Esc stops exploring. */
 export function GameViewer() {
   const { id = "" } = useParams();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const game = useLoad<GameDetail>(`/games/${id}`);
   const status = useLoad<AnalysisStatus>(`/games/${id}/analysis-status`);
   const state = status.data?.state;
@@ -95,19 +95,33 @@ export function GameViewer() {
   );
 
   // Position: ply 0 = start, ply N = after the N-th half-move.
+  // The ply lives in state; the URL only mirrors it (so a reload or a shared link keeps the
+  // position). Writing the URL through the router is asynchronous, and re-renders in between
+  // (live engine updates arrive several times a second) used to read a stale ply and drop key
+  // presses. The router's ?ply= is adopted only when it changes, i.e. on a real navigation.
   const requested = Number(params.get("ply") ?? 0);
-  const ply = Number.isFinite(requested) ? Math.max(0, Math.min(total, requested)) : 0;
+  const urlPly = Number.isFinite(requested) ? Math.max(0, requested) : 0;
+  const [rawPly, setRawPly] = useState(urlPly);
+  const [seenUrlPly, setSeenUrlPly] = useState(urlPly);
+  if (urlPly !== seenUrlPly) {
+    setSeenUrlPly(urlPly);
+    setRawPly(urlPly);
+  }
+  const ply = Math.min(total, rawPly);
   const [explore, setExplore] = useState<{ fen: string; moves: string[] } | null>(null);
-  const plyRef = useRef(ply); // source of truth between renders: fast key presses never lose a step
+  const plyRef = useRef(ply); // read by the key handler between renders
   plyRef.current = ply;
   const go = useCallback(
     (next: number) => {
       const clamped = Math.max(0, Math.min(total, next));
       plyRef.current = clamped;
       setExplore(null);
-      setParams({ ply: String(clamped) }, { replace: true });
+      setRawPly(clamped);
+      const url = new URL(window.location.href);
+      url.searchParams.set("ply", String(clamped));
+      window.history.replaceState(window.history.state, "", url); // synchronous, no navigation
     },
-    [setParams, total],
+    [total],
   );
 
   useEffect(() => {
@@ -162,57 +176,67 @@ export function GameViewer() {
   }, [notes.data, byPly, total, student]);
 
   const g = game.data;
+  const engine = useLiveEngine(shownFen);
   return (
     <main className="game-page">
       {game.loading && <Loading />}
       <ErrorBox error={game.error ?? parseError} />
       {g && <GameHeader g={g} />}
       {g && <StatusBanner status={status.data} gameId={id} onQueued={status.refresh} />}
-      {keyMoments.length > 0 && (
-        <nav className="key-moments" aria-label="Key moments">
-          <span className="muted small">Key moments:</span>
-          {keyMoments.map((p) => {
-            const a = byPly.get(p)!;
-            return (
-              <button
-                key={p}
-                className={`chip ${a.verdict} ${a.side}`}
-                onClick={() => go(p)}
-                aria-current={p === ply}
-                title={`${a.side === "student" ? "Your" : "Your opponent's"} ${a.label.toLowerCase()}`}
-              >
-                <span className="chip-side">{a.side === "student" ? "You" : "Opp"}</span> {moveLabel(p, a.san)}{" "}
-                {a.symbol}
-              </button>
-            );
-          })}
-        </nav>
-      )}
       {g && (
-        <div className="analysis-layout">
-          <section aria-label="Original game">
-            <Board
-              fen={shownFen}
-              orientation={student}
-              onMove={exploreMove}
-              lastMove={explore ? null : move?.lan}
-              bestMove={showBest ? note.best_move_uci : null}
-              threat={!explore && isMistake ? note?.threat_uci : null}
-              size={460}
-            />
+        <div className="workspace">
+          {/* Left: the original game. Sticky, so it never scrolls away while you navigate. */}
+          <section className="board-column" aria-label="Original game">
+            {keyMoments.length > 0 && (
+              <nav className="key-moments" aria-label="Key moments">
+                <span className="muted small">Key moments</span>
+                {keyMoments.map((p) => {
+                  const a = byPly.get(p)!;
+                  return (
+                    <button
+                      key={p}
+                      className={`chip ${a.verdict} ${a.side}`}
+                      onClick={() => go(p)}
+                      aria-current={p === ply}
+                      title={`${a.side === "student" ? "Your" : "Your opponent's"} ${a.label.toLowerCase()}`}
+                    >
+                      <span className="chip-side">{a.side === "student" ? "You" : "Opp"}</span> {moveLabel(p, a.san)}{" "}
+                      {a.symbol}
+                    </button>
+                  );
+                })}
+              </nav>
+            )}
+            <div className="board-with-bar">
+              <EvalBar line={engine.on ? engine.update?.lines[0] : undefined} orientation={student} />
+              <Board
+                fen={shownFen}
+                orientation={student}
+                onMove={exploreMove}
+                lastMove={explore ? null : move?.lan}
+                bestMove={showBest ? note.best_move_uci : null}
+                threat={!explore && isMistake ? note?.threat_uci : null}
+                size="var(--board-size)"
+              />
+            </div>
             <div className="nav-buttons" role="group" aria-label="Move navigation">
               <button onClick={() => go(0)} title="Start (Home)" aria-label="Start">⏮</button>
               <button onClick={() => go(ply - 1)} title="Previous move (↑ or ←)" aria-label="Previous move">◀</button>
-              <span className="muted small ply-counter">
-                {ply === 0 ? "Start" : `Move ${Math.ceil(ply / 2)}${ply % 2 ? "" : "…"}`} · {ply}/{total}
+              <span className="ply-counter">
+                <span>
+                  {ply === 0 ? "Start" : `Move ${Math.ceil(ply / 2)}${ply % 2 ? "" : "…"}`}
+                  <span className="muted small"> · {ply}/{total}</span>
+                </span>
+                {!explore && (
+                  <span className="muted tiny keys-hint">
+                    <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> step · <kbd>N</kbd><kbd>P</kbd> key moments
+                    <span className="wide-only"> · drag to explore</span>
+                  </span>
+                )}
               </span>
               <button onClick={() => go(ply + 1)} title="Next move (↓ or →)" aria-label="Next move">▶</button>
               <button onClick={() => go(total)} title="End (End)" aria-label="End">⏭</button>
             </div>
-            <p className="muted small keys-hint">
-              Keys: <kbd>↓</kbd>/<kbd>→</kbd> next · <kbd>↑</kbd>/<kbd>←</kbd> back · <kbd>N</kbd>/<kbd>P</kbd> next/previous
-              key moment · drag a piece to explore
-            </p>
             {explore && (
               <p className="row small exploring">
                 <Badge kind="warn">Exploring</Badge> {explore.moves.join(" ")}
@@ -220,9 +244,10 @@ export function GameViewer() {
               </p>
             )}
             {ready && <EvalGraph points={graph} totalPlies={total} currentPly={ply} onSelect={go} you={student} />}
-            <EnginePanel fen={shownFen} pov={student} />
           </section>
-          <section aria-label="Analysis of this move">
+          {/* Right: engine on top, this move's verdict, then the scrollable move list. */}
+          <section className="side-column" aria-label="Analysis of this move">
+            <EngineLines fen={shownFen} engine={engine} />
             <MovePanel
               student={student}
               ply={ply}
@@ -233,7 +258,6 @@ export function GameViewer() {
               tax={tax}
             />
             <MoveList moves={moves} ply={ply} byPly={byPly} findingsByPly={findingsByPly} onSelect={go} />
-            <Legend />
           </section>
         </div>
       )}
@@ -245,6 +269,7 @@ function GameHeader({ g }: { g: GameDetail }) {
   const you = (c: Side) => (g.student_color === c ? <Badge kind="ok">you</Badge> : null);
   return (
     <header className="game-header">
+      <div className="game-title">
       <h1>
         <span className="player">
           <span className="piece-dot white" aria-hidden /> {g.white_name} {you("white")}
@@ -260,6 +285,8 @@ function GameHeader({ g }: { g: GameDetail }) {
         {g.time_control && ` · time control ${g.time_control}`}
         {g.opening_eco && ` · opening ${g.opening_eco}`}
       </p>
+      </div>
+      <Legend />
     </header>
   );
 }
@@ -434,8 +461,17 @@ function MoveList({
   onSelect: (ply: number) => void;
 }) {
   const active = useRef<HTMLButtonElement | null>(null);
+  const box = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    active.current?.scrollIntoView({ block: "nearest" });
+    // Scroll only the move list. scrollIntoView() would also scroll the page, which pushed
+    // the board and engine out of view on every key press.
+    const el = active.current;
+    const list = box.current;
+    if (!el || !list) return;
+    const r = el.getBoundingClientRect();
+    const lr = list.getBoundingClientRect();
+    if (r.top < lr.top) list.scrollTop -= lr.top - r.top + 8;
+    else if (r.bottom > lr.bottom) list.scrollTop += r.bottom - lr.bottom + 8;
   }, [ply]);
 
   const rows = [];
@@ -462,7 +498,7 @@ function MoveList({
     );
   };
   return (
-    <div className="movelist" role="region" aria-label="Moves">
+    <div className="movelist" role="region" aria-label="Moves" ref={box}>
       <table>
         <tbody>
           {rows.map((i) => (
@@ -481,7 +517,7 @@ function MoveList({
 function Legend() {
   return (
     <details className="legend-box">
-      <summary>How to read this</summary>
+      <summary>How to read this?</summary>
       <ul className="small">
         <li>
           <span className="move-symbol">??</span> blunder · <span className="move-symbol">?</span> mistake ·{" "}

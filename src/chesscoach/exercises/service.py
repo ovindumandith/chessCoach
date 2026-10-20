@@ -57,7 +57,7 @@ def create_exercises(
     subskill_code: str | None = None,
     count: int = 5,
 ) -> list[Exercise]:
-    require_student_access(db, user, student_id)
+    require_own_student_record(db, user, student_id)  # coaches monitor, they don't create
     if skill_code is None:
         ctx = build_context(db, student_id)  # top trainable skill from the profile
         skill_code, subskill_code = ctx.objective.skill_code, ctx.objective.subskill_code

@@ -12,7 +12,7 @@ Read `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md` before you change 
 | Personalized | Each student has their own profile, history and access controls. |
 | Uncertainty-aware | When evidence is thin, return `insufficient_evidence` or `unclassified`, not a confident label. |
 | Reproducible | Persist the engine version and config, `analysis_version`, `classifier_version`, taxonomy version and `prompt_version`. |
-| Human-reviewable | Rule-derived labels are candidates until a coach confirms them, and `review_status` is always stored. |
+| Human-reviewable | `review_status` is always stored, and admins can label findings for research. Product decision 2026-10-21: findings are **not** reviewed in the product. Students see and acknowledge them, and coaches only monitor. Never present findings as human-confirmed. |
 | Provider-independent | LLM provider and model are configuration. No chess logic depends on a provider. |
 | Privacy-conscious | Every student-scoped route checks `student_access` in the service layer. Don't log PGN content or personal data. |
 | Research-ready | Record data splits, baselines and experiment configs. Held-out games never feed profiles or exercises. |
@@ -22,10 +22,12 @@ Read `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md` before you change 
 
 - `ingestion/` parses and stores PGNs. It never calls the engine or the LLM.
 - `analysis/` runs Stockfish and computes move features. It never writes coaching text or profiles.
-- `classification/` turns stored engine evidence into candidate observations and skill opportunities, and handles coach review. It reads analysis rows only and never calls the engine.
+- `classification/` turns stored engine evidence into observations (findings) and skill opportunities, plus admin-only research labelling. It reads analysis rows only and never calls the engine.
 - `profiling/` aggregates observations into versioned snapshots. It never treats unreviewed candidates as ground truth.
 - `coaching/` retrieves evidence, calls the LLM and validates output. Only this module talks to the LLM.
 - `exercises/` handles exercise selection and attempts.
+- `mistakes.py` groups a student's findings into mistakes per game and stores the student's acknowledgements. It's display and monitoring only, and never changes findings or profiles.
+- `cohort.py` is the coach's read-only overview of mistakes across their students.
 - `annotation/` turns stored analysis into display annotations for both sides (verdicts and board-derived reasons). It's display-only: opponent grades never feed profiles.
 - `evaluation/` holds research baselines and metrics. Keep it separate from live services.
 - `api/` holds thin routes. Business logic lives in services, not route handlers.
@@ -39,7 +41,8 @@ Read `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md` before you change 
 - Only the student's own moves count toward move-quality statistics.
 - A high evaluation loss alone does not justify a motif or skill label. Engine-confirmed errors with no verified cause are stored as `unclassified`.
 - Motifs are reported only when the board check (python-chess) **and** the engine evidence agree.
-- Reclassification never deletes or duplicates coach-reviewed observations.
+- Reclassification never deletes or duplicates reviewed (admin-labelled) observations. Acknowledgements are keyed by (game, ply), so they survive it.
+- Roles: students add and analyze their own games, acknowledge mistakes, get recommendations and do exercises (`require_own_student_record`). Coaches monitor. Enforce this in services, not only in the UI.
 
 ## Engineering rules
 

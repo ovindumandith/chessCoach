@@ -56,6 +56,15 @@ class AliasCreate(BaseModel):
     alias: str = Field(min_length=1, max_length=200)
 
 
+class StudentActivity(BaseModel):
+    games: int
+    games_by_student: int
+    last_student_upload: datetime | None
+    mistakes: int  # the student's moves with a current finding
+    open_mistakes: int  # ... that the student has not acknowledged yet
+    has_login: bool
+
+
 class StudentOut(ORMModel):
     id: uuid.UUID
     display_name: str
@@ -66,11 +75,13 @@ class StudentOut(ORMModel):
     aliases: list[str]
     created_at: datetime
     updated_at: datetime
+    activity: StudentActivity | None = None  # filled on the list endpoint
 
     @classmethod
-    def from_model(cls, student) -> "StudentOut":
-        data = {k: getattr(student, k) for k in cls.model_fields if k != "aliases"}
-        return cls(**data, aliases=[a.alias for a in student.aliases])
+    def from_model(cls, student, activity: dict | None = None) -> "StudentOut":
+        skip = {"aliases", "activity"}
+        data = {k: getattr(student, k) for k in cls.model_fields if k not in skip}
+        return cls(**data, aliases=[a.alias for a in student.aliases], activity=activity)
 
 
 # --------------------------------------------------------------------------- games
@@ -93,6 +104,8 @@ class GameSummary(ORMModel):
     has_clock: bool
     created_at: datetime
     analysis_status: str | None = None
+    # "student" (the student added it), "coach" (a coach or admin), or None (not recorded).
+    added_by: str | None = None
 
 
 class GameDetail(GameSummary):
@@ -358,6 +371,8 @@ class CoachingSessionOut(ORMModel):
     latency_ms: int | None
     response_json: dict[str, Any]
     created_at: datetime
+    # The skill the lesson is about, so "practise this" creates matching exercises.
+    objective: dict[str, Any] | None = None
 
 
 class LessonOut(BaseModel):

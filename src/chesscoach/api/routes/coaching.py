@@ -10,6 +10,11 @@ from chesscoach.coaching import service
 router = APIRouter(prefix="/students/{student_id}/coaching", tags=["coaching"])
 
 
+def session_out(session) -> CoachingSessionOut:
+    objective = (session.request_metadata or {}).get("objective")
+    return CoachingSessionOut.model_validate(session).model_copy(update={"objective": objective})
+
+
 @router.post(
     "/lessons",
     response_model=LessonOut,
@@ -32,7 +37,7 @@ def generate_lesson(
         subskill_code=body.subskill_code if body else None,
     )
     return LessonOut(
-        session=CoachingSessionOut.model_validate(result.session),
+        session=session_out(result.session),
         used_fallback=result.used_fallback,
         lesson=result.response,
     )
@@ -48,7 +53,7 @@ def list_sessions(
 ) -> Page[CoachingSessionOut]:
     rows, total = service.list_sessions(db, user, student_id, limit=limit, offset=offset)
     return Page(
-        items=[CoachingSessionOut.model_validate(r) for r in rows],
+        items=[session_out(r) for r in rows],
         total=total,
         limit=limit,
         offset=offset,

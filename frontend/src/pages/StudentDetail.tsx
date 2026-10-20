@@ -5,23 +5,21 @@ import { ErrorBox, Loading } from "../components/ui";
 import { useLoad } from "../hooks";
 import { AccountTab } from "./student/AccountTab";
 import { CoachingTab } from "./student/CoachingTab";
-import { ExercisesTab } from "./student/ExercisesTab";
 import { GamesTab } from "./student/GamesTab";
+import { MistakesTab } from "./student/MistakesTab";
 import { ProfileTab } from "./student/ProfileTab";
 import { ProgressTab } from "./student/ProgressTab";
-import { ReviewTab } from "./student/ReviewTab";
 
 const TABS = [
   ["games", "Games"],
-  ["review", "Review findings"],
+  ["mistakes", "Mistakes"],
   ["profile", "Profile"],
-  ["coaching", "Lessons"],
-  ["exercises", "Exercises"],
+  ["coaching", "Recommendations"],
   ["progress", "Progress"],
   ["account", "Account"],
 ] as const;
 
-/** Coach view of one student. */
+/** Coach view of one student: monitoring. The student adds games, gets lessons and trains. */
 export function StudentDetail() {
   const { id = "" } = useParams();
   const [params, setParams] = useSearchParams();
@@ -49,11 +47,10 @@ export function StudentDetail() {
               </button>
             ))}
           </nav>
-          {tab === "games" && <GamesTab studentId={id} canEdit />}
-          {tab === "review" && <ReviewTab studentId={id} canReview />}
-          {tab === "profile" && <ProfileTab studentId={id} canRebuild />}
-          {tab === "coaching" && <CoachingTab studentId={id} />}
-          {tab === "exercises" && <ExercisesTab studentId={id} isStudent={false} />}
+          {tab === "games" && <GamesTab studentId={id} viewer="coach" />}
+          {tab === "mistakes" && <MistakesTab studentId={id} viewer="coach" />}
+          {tab === "profile" && <ProfileTab studentId={id} />}
+          {tab === "coaching" && <CoachingTab studentId={id} canGenerate={false} />}
           {tab === "progress" && <ProgressTab studentId={id} />}
           {tab === "account" && <AccountTab studentId={id} />}
         </>

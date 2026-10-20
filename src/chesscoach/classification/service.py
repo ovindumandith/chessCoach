@@ -17,7 +17,7 @@ from chesscoach.classification.classifier import (
     versions,
 )
 from chesscoach.classification.taxonomy import UNCLASSIFIED, get_taxonomy
-from chesscoach.core.access import get_access_level, require_student_access
+from chesscoach.core.access import get_access_level, require_admin, require_student_access
 from chesscoach.core.audit import record_audit
 from chesscoach.core.errors import ConflictError, NotFoundError, ValidationFailedError
 from chesscoach.db.enums import (
@@ -290,7 +290,9 @@ def review_observation(
     obs = db.get(WeaknessObservation, observation_id)
     if obs is None:
         raise NotFoundError("Observation not found")
-    require_student_access(db, user, obs.student_id, coach_only=True)
+    # Findings are not reviewed in the product: students see them, coaches monitor. Manual
+    # labelling stays available to administrators for research (gold labels, evaluation).
+    require_admin(user)
 
     previous = {
         "review_status": obs.review_status.value,

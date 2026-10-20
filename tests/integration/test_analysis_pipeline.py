@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from chesscoach.analysis.worker import claim_next_run, run_once
 from chesscoach.core.config import Settings
-from chesscoach.db.enums import AnalysisPass, JobStatus
+from chesscoach.db.enums import AnalysisPass, JobStatus, UserRole
 from chesscoach.db.models import AnalysisRun, MoveAnalysis
 from chesscoach.db.types import utcnow
 from tests.fakes import FakeAnalyzer
@@ -43,6 +43,7 @@ def imported(client, mixed_pgn):
     ).json()
     report = client.post(
         f"{API}/students/{student['id']}/games/import",
+        headers=client.as_student(student["id"]),
         files={"file": ("g.pgn", mixed_pgn, "application/x-chess-pgn")},
     ).json()
     games = {g["index"]: g["game_id"] for g in report["games"] if g["game_id"]}
@@ -52,13 +53,14 @@ def imported(client, mixed_pgn):
 def _upload(client, student_id, data, name):
     return client.post(
         f"{API}/students/{student_id}/games/import",
+        headers=client.as_student(student_id),
         files={"file": (name, data, "application/x-chess-pgn")},
     ).json()
 
 
 def test_queue_process_and_read_analysis(client, db, imported, settings):
     _, games = imported
-    resp = client.post(f"{API}/games/{games[0]}/analyze")
+    resp = client.post(f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0]))
     assert resp.status_code == 202
     job = resp.json()
     assert job["status"] == "queued"
@@ -86,23 +88,35 @@ def test_queue_process_and_read_analysis(client, db, imported, settings):
     assert analysis["moves"][0]["clock_after_ms"] == 598_000
 
 
-def test_reuses_active_and_completed_jobs_unless_forced(client, db, imported, settings):
+def test_reuses_active_and_completed_jobs_unless_forced(client, db, imported, settings, make_user):
     _, games = imported
-    first = client.post(f"{API}/games/{games[0]}/analyze").json()
-    again = client.post(f"{API}/games/{games[0]}/analyze")
+    first = client.post(
+        f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0])
+    ).json()
+    again = client.post(f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0]))
     assert again.status_code == 200 and again.json()["id"] == first["id"]
 
     run_once(db, FakeAnalyzer(), settings, "w")
-    completed = client.post(f"{API}/games/{games[0]}/analyze")
+    completed = client.post(
+        f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0])
+    )
     assert completed.status_code == 200 and completed.json()["id"] == first["id"]
 
-    forced = client.post(f"{API}/games/{games[0]}/analyze", json={"force": True})
+    me = client.as_student.game(games[0])
+    url = f"{API}/games/{games[0]}/analyze"
+    # Forcing a re-run is an operator action: refused for the student and the coach.
+    assert client.post(url, json={"force": True}, headers=me).status_code == 403
+    assert client.post(url, json={"force": True}).status_code == 403
+    make_user("ops@example.com", UserRole.ADMIN)
+    forced = client.post(url, json={"force": True}, headers={"X-Dev-User-Email": "ops@example.com"})
     assert forced.status_code == 202 and forced.json()["id"] != first["id"]
 
 
 def test_unresolved_mapping_cannot_be_analyzed(client, imported):
     _, games = imported
-    resp = client.post(f"{API}/games/{games[4]}/analyze")  # ambiguous game
+    resp = client.post(
+        f"{API}/games/{games[4]}/analyze", headers=client.as_student.game(games[4])
+    )  # ambiguous game
     assert resp.status_code == 409
     assert resp.json()["error"]["details"]["mapping_status"] == "ambiguous"
 
@@ -113,7 +127,7 @@ def test_critical_pass_is_queued_and_reanalyzes_only_critical_plies(client, db, 
     ).json()
     report = _upload(client, student["id"], MISSED_MATE_PGN, "m.pgn")
     game_id = report["games"][0]["game_id"]
-    client.post(f"{API}/games/{game_id}/analyze")
+    client.post(f"{API}/games/{game_id}/analyze", headers=client.as_student.game(game_id))
 
     run_once(db, FakeAnalyzer(), settings, "w")  # baseline
     critical = db.scalars(
@@ -136,7 +150,11 @@ def test_critical_pass_is_queued_and_reanalyzes_only_critical_plies(client, db, 
 
 def test_failure_is_retried_without_duplicate_rows(client, db, imported, settings):
     _, games = imported
-    job_id = uuid.UUID(client.post(f"{API}/games/{games[0]}/analyze").json()["id"])
+    job_id = uuid.UUID(
+        client.post(
+            f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0])
+        ).json()["id"]
+    )
 
     run_once(db, FakeAnalyzer(fail_times=3), settings, "w")
     run = db.get(AnalysisRun, job_id)
@@ -157,7 +175,11 @@ def test_failure_is_retried_without_duplicate_rows(client, db, imported, setting
 
 def test_gives_up_after_max_attempts(client, db, imported, settings):
     _, games = imported
-    job_id = uuid.UUID(client.post(f"{API}/games/{games[0]}/analyze").json()["id"])
+    job_id = uuid.UUID(
+        client.post(
+            f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0])
+        ).json()["id"]
+    )
     broken = FakeAnalyzer(fail_always=True)
     for _ in range(settings.analysis_max_attempts):
         run_once(db, broken, settings, "w")
@@ -170,7 +192,11 @@ def test_gives_up_after_max_attempts(client, db, imported, settings):
 
 def test_stale_running_job_is_reclaimed(client, db, imported, settings):
     _, games = imported
-    job_id = uuid.UUID(client.post(f"{API}/games/{games[0]}/analyze").json()["id"])
+    job_id = uuid.UUID(
+        client.post(
+            f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0])
+        ).json()["id"]
+    )
     run = db.get(AnalysisRun, job_id)
     run.status = JobStatus.RUNNING
     run.attempts = 1
@@ -186,14 +212,16 @@ def test_stale_running_job_is_reclaimed(client, db, imported, settings):
 
 def test_fresh_running_job_is_not_stolen(client, db, imported, settings):
     _, games = imported
-    client.post(f"{API}/games/{games[0]}/analyze")
+    client.post(f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0]))
     assert claim_next_run(db, settings, "w1") is not None
     assert claim_next_run(db, settings, "w2") is None
 
 
 def test_other_coach_cannot_queue_or_read(client, db, imported, make_user, settings):
     _, games = imported
-    job = client.post(f"{API}/games/{games[0]}/analyze").json()
+    job = client.post(
+        f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0])
+    ).json()
     run_once(db, FakeAnalyzer(), settings, "w")
     make_user("other@example.com")
     other = {"X-Dev-User-Email": "other@example.com"}
@@ -212,7 +240,7 @@ def test_status_endpoint_tracks_the_whole_lifecycle(client, db, settings):
     games = lambda: client.get(f"{API}/students/{student['id']}/games").json()["items"]  # noqa: E731
 
     assert status()["state"] == "not_requested" and games()[0]["analysis_status"] == "not_requested"
-    client.post(f"{API}/games/{game_id}/analyze")
+    client.post(f"{API}/games/{game_id}/analyze", headers=client.as_student.game(game_id))
     s = status()
     assert s["state"] == "queued" and s["jobs_ahead"] == 0 and s["results_available"] is False
     assert s["moves_to_analyze"] == 4
@@ -228,8 +256,10 @@ def test_status_endpoint_tracks_the_whole_lifecycle(client, db, settings):
 
 def test_status_reports_failures_and_queue_position(client, db, imported, settings):
     _, games = imported
-    first = client.post(f"{API}/games/{games[0]}/analyze").json()
-    client.post(f"{API}/games/{games[1]}/analyze")
+    first = client.post(
+        f"{API}/games/{games[0]}/analyze", headers=client.as_student.game(games[0])
+    ).json()
+    client.post(f"{API}/games/{games[1]}/analyze", headers=client.as_student.game(games[1]))
     assert client.get(f"{API}/games/{games[1]}/analysis-status").json()["jobs_ahead"] == 1
     broken = FakeAnalyzer(fail_always=True)
     for _ in range(settings.analysis_max_attempts):

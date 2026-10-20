@@ -181,7 +181,12 @@ def test_expensive_routes_are_rate_limited(client, monkeypatch, mixed_pgn):
     ]
     url = f"{API}/students/{sid}/games/import"
     files = {"file": ("g.pgn", mixed_pgn, "application/x-chess-pgn")}
-    assert [client.post(url, files=files).status_code for _ in range(3)] == [201, 201, 429]
+    me = client.as_student(sid)
+    assert [client.post(url, files=files, headers=me).status_code for _ in range(3)] == [
+        201,
+        201,
+        429,
+    ]
     get_settings.cache_clear()
 
 

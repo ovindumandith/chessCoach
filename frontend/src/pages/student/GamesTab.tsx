@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api, errorText, patch, post, type Game, type ImportReport, type Page } from "../../api";
@@ -6,7 +6,21 @@ import { AnalysisBadge, IN_PROGRESS } from "../../components/AnalysisBadge";
 import { ActionButton, Badge, Empty, ErrorBox, Loading } from "../../components/ui";
 import { useLoad, usePoll } from "../../hooks";
 
-export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: boolean }) {
+/**
+ * The student's games. The student adds games (PGN), confirms which side they played and
+ * queues analysis; the coach sees the same list read-only. The server enforces the same rules.
+ */
+export function GamesTab({
+  studentId,
+  viewer,
+  onChange,
+}: {
+  studentId: string;
+  viewer: "coach" | "student";
+  /** Called when games are added or finish analysis (e.g. to update a summary elsewhere). */
+  onChange?: () => void;
+}) {
+  const isStudent = viewer === "student";
   const { data, error, loading, reload, refresh } = useLoad<Page<Game>>(`/students/${studentId}/games?limit=200`);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -19,6 +33,15 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
   );
   // Follow running analyses live; stop polling when nothing is in progress.
   usePoll(refresh, 4000, inProgress > 0);
+  const signature = data ? `${games.length}:${games.filter((g) => g.analysis_status === "analyzed").length}` : null;
+  const notify = useRef(onChange);
+  notify.current = onChange;
+  const lastSignature = useRef<string | null>(null);
+  useEffect(() => {
+    if (signature === null) return;
+    if (lastSignature.current !== null && lastSignature.current !== signature) notify.current?.();
+    lastSignature.current = signature;
+  }, [signature]);
 
   async function upload(file: File) {
     setUploading(true);
@@ -42,10 +65,21 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
 
   return (
     <section>
-      {canEdit && (
+      {!isStudent && (
+        <p className="muted small">
+          Your student adds and analyzes their own games. You see them here as they come in; open a game to see its
+          analysis, and see the mistakes found in the <i>Mistakes</i> tab.
+        </p>
+      )}
+      {isStudent && (
         <div className="card">
-          <h2>Import PGN</h2>
+          <h2>Add your games</h2>
+          <p className="muted small">
+            Upload a .pgn file, for example an export from Lichess or Chess.com, then analyze it. The mistakes found
+            appear in <i>My mistakes</i>. Your coach can see your games too.
+          </p>
           <input
+            aria-label="PGN file"
             type="file"
             accept=".pgn,.txt"
             disabled={uploading}
@@ -70,15 +104,17 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
           )}
         </div>
       )}
-      {canEdit && games.length > 0 && (
+      {games.length > 0 && (
         <div className="row">
-          <ActionButton
-            className="primary"
-            disabled={toAnalyze.length === 0}
-            onClick={() => analyze(toAnalyze.map((g) => g.id))}
-          >
-            Analyze all ({toAnalyze.length})
-          </ActionButton>
+          {isStudent && (
+            <ActionButton
+              className="primary"
+              disabled={toAnalyze.length === 0}
+              onClick={() => analyze(toAnalyze.map((g) => g.id))}
+            >
+              Analyze all ({toAnalyze.length})
+            </ActionButton>
+          )}
           {inProgress > 0 && (
             <span className="muted small">
               Stockfish is working on {inProgress} game{inProgress > 1 ? "s" : ""}; this list updates by itself.
@@ -88,7 +124,17 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
       )}
       {loading && <Loading />}
       <ErrorBox error={error} />
-      {data && games.length === 0 && <Empty>No games yet.</Empty>}
+      {data && games.length === 0 && (
+        <Empty>
+          {isStudent ? "No games yet. Add a PGN file above to get started." : "Your student has not added any games yet."}
+        </Empty>
+      )}
+      {!isStudent && games.some((g) => g.added_by === "student") && (
+        <p className="muted small" data-testid="student-added">
+          {games.filter((g) => g.added_by === "student").length} of {games.length} games were added by the student
+          (marked <Badge kind="ok">student</Badge>).
+        </p>
+      )}
       {games.length > 0 && (
         <table>
           <thead>
@@ -97,8 +143,9 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
               <th>White</th>
               <th>Black</th>
               <th>Result</th>
-              <th>Student plays</th>
+              <th>{isStudent ? "You played" : "Student plays"}</th>
               <th>Analysis</th>
+              <th>Added by</th>
               <th></th>
             </tr>
           </thead>
@@ -112,8 +159,10 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
                 <td>
                   {g.student_color ? (
                     g.student_color
-                  ) : canEdit ? (
-                    <span className="row">
+                  ) : !isStudent ? (
+                    <Badge kind="warn">not confirmed yet</Badge>
+                  ) : (
+                    <span className="row" title="Which side were you?">
                       <Badge kind="warn">{g.mapping_status}</Badge>
                       {(["white", "black"] as const).map((c) => (
                         <ActionButton
@@ -127,20 +176,29 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
                         </ActionButton>
                       ))}
                     </span>
-                  ) : (
-                    <Badge kind="warn">unconfirmed</Badge>
                   )}
                 </td>
                 <td>{g.student_color ? <AnalysisBadge state={g.analysis_status} /> : "–"}</td>
-                <td className="row">
-                  {g.student_color && <Link to={`/games/${g.id}`}>View</Link>}
-                  {canEdit &&
-                    g.student_color &&
-                    (g.analysis_status === "not_requested" || g.analysis_status === "failed") && (
-                      <ActionButton onClick={() => analyze([g.id])}>
-                        {g.analysis_status === "failed" ? "Retry" : "Analyze"}
-                      </ActionButton>
-                    )}
+                <td>
+                  {g.added_by === "student" ? (
+                    <Badge kind={isStudent ? undefined : "ok"}>{isStudent ? "you" : "student"}</Badge>
+                  ) : g.added_by === "coach" ? (
+                    <span className="muted small">coach</span>
+                  ) : (
+                    <span className="muted small">–</span>
+                  )}
+                </td>
+                <td>
+                  <span className="row">
+                    {g.student_color && <Link to={`/games/${g.id}`}>View</Link>}
+                    {isStudent &&
+                      g.student_color &&
+                      (g.analysis_status === "not_requested" || g.analysis_status === "failed") && (
+                        <ActionButton onClick={() => analyze([g.id])}>
+                          {g.analysis_status === "failed" ? "Retry" : "Analyze"}
+                        </ActionButton>
+                      )}
+                  </span>
                 </td>
               </tr>
             ))}

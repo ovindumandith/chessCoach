@@ -3,7 +3,7 @@ output fails validation. Built only from stored evidence, so it is always ground
 
 from chesscoach.coaching.schemas import CoachingContext, CoachingResponse, LessonExample
 
-TEMPLATE_VERSION = "template-v1"
+TEMPLATE_VERSION = "template-v2"  # v2: no coach-review wording (findings are not reviewed)
 
 
 def _example(p) -> LessonExample:
@@ -40,9 +40,10 @@ def build_fallback(ctx: CoachingContext) -> CoachingResponse:
             games.add(p.game_id)
         if len(chosen) == 2:
             break
-    uncertain = []
-    if o.provisional:
-        uncertain.append("Most of these findings have not been reviewed by a coach yet.")
+    uncertain = [
+        "These findings come from the engine and automatic board checks; "
+        "no person has checked them."
+    ]
     if o.games_affected < 3:
         uncertain.append(f"The pattern appears in only {o.games_affected} game(s) so far.")
     uncertain.append(

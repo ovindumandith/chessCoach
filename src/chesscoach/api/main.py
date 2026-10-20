@@ -11,9 +11,11 @@ from chesscoach.api.routes import (
     analysis,
     auth,
     coaching,
+    cohort,
     exercises,
     games,
     health,
+    mistakes,
     profiles,
     students,
     weaknesses,
@@ -54,6 +56,8 @@ def create_app() -> FastAPI:
     app.include_router(profiles.router, prefix=API_PREFIX)
     app.include_router(coaching.router, prefix=API_PREFIX)
     app.include_router(exercises.router, prefix=API_PREFIX)
+    app.include_router(cohort.router, prefix=API_PREFIX)
+    app.include_router(mistakes.router, prefix=API_PREFIX)
     return app
 
 

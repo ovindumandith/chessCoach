@@ -1,30 +1,22 @@
 import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
+import { newStudent, signIn } from "./helpers";
+
 // The student plays BLACK and Black is winning: every evaluation must say so explicitly,
 // never as a bare "+" that reads as "White is better".
 
 const RUN = Date.now().toString(36);
-const COACH = { email: `e2e-black-${RUN}@example.org`, password: "e2e-coach-password" };
 const PGN = fileURLToPath(new URL("./fixtures/black_games.pgn", import.meta.url));
 
 test("evaluations name the side when the student plays Black", async ({ page, request }) => {
-  expect(
-    (await request.post("/api/v1/users", {
-      headers: { Authorization: `Bearer ${process.env.E2E_ADMIN_TOKEN}` },
-      data: { ...COACH, role: "coach" },
-    })).status(),
-  ).toBe(201);
-
-  await page.goto("/");
-  await page.getByLabel("Email").fill(COACH.email);
-  await page.getByLabel("Password").fill(COACH.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.getByLabel("Display name").fill(`Black ${RUN}`);
-  await page.getByLabel("PGN player names (comma separated)").fill("Black Student");
-  await page.getByRole("button", { name: "Add student" }).click();
-  await page.getByRole("link", { name: `Black ${RUN}` }).click();
-  await page.locator('input[type="file"]').setInputFiles(PGN);
+  const { student } = await newStudent(request, `black-${RUN}`, {
+    name: `Black ${RUN}`,
+    pgnNames: ["Black Student"],
+  });
+  await signIn(page, student);
+  await page.getByRole("tab", { name: "My games" }).click();
+  await page.getByLabel("PGN file").setInputFiles(PGN);
   await expect(page.getByRole("cell", { name: "black", exact: true })).toBeVisible(); // identified from the PGN name
   await page.getByRole("button", { name: "Analyze all (1)" }).click();
   await page.getByRole("link", { name: "View" }).click();
@@ -48,7 +40,7 @@ test("evaluations name the side when the student plays Black", async ({ page, re
   await expect(firstLine).toContainText(/^−\d+\.\d\d/, { timeout: 60_000 }); // standard notation
   const bar = page.getByRole("meter", { name: "White's share of the winning chances" });
   await expect(async () => expect(Number(await bar.getAttribute("aria-valuenow"))).toBeLessThan(10)).toPass();
-  await expect(page.getByText("Black (you)")).toBeVisible();
+  await expect(bar).toContainText(/^−/); // the bar's label uses the same notation
 
   // The opponent's blunder one move earlier, from Black's point of view.
   await page.keyboard.press("ArrowUp");

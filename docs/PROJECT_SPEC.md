@@ -11,6 +11,7 @@ The first target is 10–30 students with about 50 historical games each.
 ## Users
 
 - **Coach:** manages students, uploads PGNs, reviews evidence, confirms or corrects classifications, and edits learning plans.
+  - *Implementation note (2026-10-21):* students upload and analyze their own games, acknowledge their mistakes, and get recommendations and exercises. Coaches only monitor, and findings are not reviewed in the product (admins can still label them for research). See `IMPLEMENTATION_PLAN.md`, Post-MVP additions.
 - **Student:** reviews their own games and profile, completes lessons and exercises, and tracks progress.
 
 ## The five questions the system answers

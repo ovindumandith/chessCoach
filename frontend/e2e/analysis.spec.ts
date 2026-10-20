@@ -1,41 +1,21 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
+import { drag, newStudent, signIn, uploadAndAnalyze } from "./helpers";
+
 // Live in-browser engine + "you made the same mistake before" links, against the real stack.
+// The student adds and analyzes their own games, then studies them.
 
 const RUN = Date.now().toString(36);
-const COACH = { email: `e2e-analysis-${RUN}@example.org`, password: "e2e-coach-password" };
 const PGN = fileURLToPath(new URL("./fixtures/repeat_games.pgn", import.meta.url));
 
-async function drag(page: Page, from: string, to: string) {
-  const a = await page.locator(`[data-square="${from}"]`).first().boundingBox();
-  const b = await page.locator(`[data-square="${to}"]`).first().boundingBox();
-  if (!a || !b) throw new Error("square not found");
-  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 });
-  await page.mouse.up();
-}
-
 test("live engine and links to the same mistake in earlier games", async ({ page, request }) => {
-  expect(
-    (await request.post("/api/v1/users", {
-      headers: { Authorization: `Bearer ${process.env.E2E_ADMIN_TOKEN}` },
-      data: { ...COACH, role: "coach" },
-    })).status(),
-  ).toBe(201);
-
-  await page.goto("/");
-  await page.getByLabel("Email").fill(COACH.email);
-  await page.getByLabel("Password").fill(COACH.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await page.getByLabel("Display name").fill(`Repeat ${RUN}`);
-  await page.getByLabel("PGN player names (comma separated)").fill("Repeat Student");
-  await page.getByRole("button", { name: "Add student" }).click();
-  await page.getByRole("link", { name: `Repeat ${RUN}` }).click();
-  await page.locator('input[type="file"]').setInputFiles(PGN);
-  await expect(page.getByText(/Imported\s*3/)).toBeVisible();
-  await page.getByRole("button", { name: "Analyze all (3)" }).click();
+  const { student } = await newStudent(request, `analysis-${RUN}`, {
+    name: `Repeat ${RUN}`,
+    pgnNames: ["Repeat Student"],
+  });
+  await signIn(page, student);
+  await uploadAndAnalyze(page, PGN, 3);
 
   // Open the latest game (vs Carol): the same missed mate as against Alice two months earlier.
   await page.getByRole("row", { name: /Carol/ }).getByRole("link", { name: "View" }).click();
@@ -95,4 +75,19 @@ test("live engine and links to the same mistake in earlier games", async ({ page
   const earlierFinding = panel.getByTestId("finding").filter({ hasText: "Mating patterns" }).filter({ hasText: "missed" });
   await expect(earlierFinding.getByRole("link", { name: /vs Carol, 2024-03-10, move 4: Qe2/ })).toBeVisible();
   await expect(earlierFinding.getByText("(later)")).toBeVisible();
+
+  // Acknowledge the mistake in the earliest game: the same kind of mistake later is flagged.
+  await page.goto("/?tab=mistakes");
+  const mistakeIn = (opponent: string) =>
+    page
+      .getByTestId("game-mistakes")
+      .filter({ has: page.getByRole("heading", { name: new RegExp(opponent) }) })
+      .getByTestId("mistake")
+      .filter({ hasText: "4. Qe2" });
+  await expect(mistakeIn("Carol").getByTestId("flagged-again")).toHaveCount(0);
+  await mistakeIn("Alice").getByRole("button", { name: "Acknowledge" }).click();
+  await expect(mistakeIn("Alice")).toContainText("acknowledged");
+  await expect(mistakeIn("Carol").getByTestId("flagged-again")).toContainText(
+    "You already acknowledged this kind of mistake in the game vs Alice, 2024-01-10, move 4",
+  );
 });
