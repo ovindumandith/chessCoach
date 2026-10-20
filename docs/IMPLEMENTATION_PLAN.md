@@ -9,7 +9,7 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 | 3 | Stockfish integration, job worker, persisted move analysis (two-pass) | ✅ |
 | 4 | Skill taxonomy, candidate detectors, coach review endpoints | ✅ |
 | 5 | Longitudinal profiles, Beta-Binomial smoothing, priority heuristic | ✅ |
-| 6 | LLM adapter, evidence retrieval, structured lessons, validation, fallback | ⏳ |
+| 6 | LLM adapter, evidence retrieval, structured lessons, validation, fallback | ✅ |
 | 7 | Exercises and attempt tracking | ⏳ |
 | 8 | Frontend, authentication (JWT + roles), authorization hardening | ⏳ |
 | 9 | Research evaluation, end-to-end tests, deployment docs | ⏳ |
@@ -152,9 +152,44 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 - Exposure rates for allowed tactics use every move as the denominator, which is coarse. A "had a piece that could be hung" denominator would be sharper.
 - Exercise accuracy enters profiles in Phase 7. Until then the profile reflects game evidence only.
 
-## Phase 6 — LLM coaching (next)
+## Phase 6 — LLM coaching
 
-- Provider abstraction (OpenAI-compatible and Anthropic adapters, plus a mock), configured through env.
-- Evidence retrieval from the latest profile: the top actionable skills and 2–5 example positions from different games.
-- Versioned prompt `prompts/chess_coach_v1.txt` and Pydantic output.
-- Chess validation of the output (game ownership, FEN and ply match, legal moves, engine claims), with a deterministic template fallback.
+- **Providers** (`coaching/providers.py`) sit behind one `LLMProvider` interface:
+  - `AnthropicProvider` uses the official SDK (`anthropic==1.15.0`), default model `claude-opus-5-5`.
+    - Structured output through `output_config.format` (strict JSON Schema) at configurable `effort` (default `medium`).
+    - Server-side refusal fallback (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`).
+    - Refusal and `max_tokens` stops are treated as failures.
+    - Usage, latency, request id, and whether a fallback model served the request are all recorded.
+  - `OpenAICompatibleProvider` uses plain HTTP with `json_schema` response formats and bounded retries on 429 and 5xx.
+  - `MockProvider` serves tests.
+  - **LLM calls are opt-in** (`LLM_ENABLED=false` by default).
+- **Retrieval** (`coaching/retrieval.py`) builds the context from the latest live profile:
+  - the top *actionable* skill (`unclassified` is never chosen, even from older snapshots) and the secondary skill
+  - up to 5 positions from different games, using the profile's examples first, with deeper critical-pass evidence where available
+  - previous lessons
+  - It never sends the whole archive. Each position holds stored facts only: FEN, played move, engine line, opponent's best reply, and evaluations from the student's side.
+- **Prompt** `prompts/chess_coach_v1.txt` is versioned and recorded on every session. Its grounding rules come from project.md §20.
+- **Output** (`CoachingResponse`) routes checkable claims into structured fields: game_id, ply, FEN, the engine's best move, and separate lists for facts and hypotheses.
+- **Validation** (`coaching/validation.py`) checks, beyond Pydantic:
+  - the skill matches the objective, with 1–2 examples
+  - every example is a supplied position with an exact FEN match
+  - a claimed engine move is legal **and** equals the stored one
+  - every SAN move in free text appears in the evidence (bare pawn pushes are skipped, since they read like squares)
+  - every quoted evaluation or "mate in N" matches stored values
+  - the student question doesn't reveal the solution
+  - a database check that every referenced game belongs to the student
+- **Flow:** generate → validate → one regeneration with the rejection reasons → otherwise a **deterministic template lesson** (`template-v1`) built from the same evidence. The template is itself validated before anything is returned.
+- **Every request** is stored as a `coaching_sessions` row: provider and model, prompt version, evidence references, context hash, every attempt with its errors, token usage, and latency. An audit event is written too.
+- **API:** `POST /students/{id}/coaching/lessons` (optional `skill_code`) and `GET /students/{id}/coaching/sessions`. Students can request their own lessons.
+- Verified on PostgreSQL with real Stockfish evidence through the template path. Not yet run against a live LLM, because no credentials are configured.
+
+### Known limitations and Phase 7 inputs
+
+- Free-text checks are pattern-based. Prose like "the knight sacrifice" isn't checked. Structured fields are the strong guarantee.
+- No rate limiting on lesson generation yet (Phase 8 security).
+- `exercise_history` is empty until Phase 7.
+
+## Phase 7 — Exercises (next)
+
+- Exercises built from analyzed positions (`exercises` table), with the solution from stored engine evidence, re-checked for legality and the "only move" gap.
+- Attempt recording and validation, an exercise history feeding coaching context, and exercise accuracy entering profiles (but never changing a profile from a single attempt).

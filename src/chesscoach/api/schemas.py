@@ -6,6 +6,7 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from chesscoach.coaching.schemas import CoachingResponse
 from chesscoach.db.enums import (
     AnalysisPass,
     Color,
@@ -16,6 +17,7 @@ from chesscoach.db.enums import (
     MappingStatus,
     ProfileState,
     ReviewStatus,
+    ValidationStatus,
 )
 
 
@@ -328,3 +330,36 @@ class RebuildRequest(BaseModel):
     cutoff_date: date | None = Field(
         default=None, description="Research use: only games played before this date."
     )
+
+
+# --------------------------------------------------------------------------- coaching
+
+
+class LessonRequest(BaseModel):
+    skill_code: str | None = Field(
+        default=None, description="Coach a specific skill instead of the top priority."
+    )
+    subskill_code: str | None = None
+
+
+class CoachingSessionOut(ORMModel):
+    id: uuid.UUID
+    student_id: uuid.UUID
+    model_provider: str
+    model_id: str
+    prompt_version: str
+    validation_status: ValidationStatus
+    validation_errors: list[Any]
+    evidence_references: list[Any]
+    token_usage: dict[str, Any]
+    latency_ms: int | None
+    response_json: dict[str, Any]
+    created_at: datetime
+
+
+class LessonOut(BaseModel):
+    session: CoachingSessionOut
+    used_fallback: bool = Field(
+        description="True when the deterministic template was used instead of the LLM."
+    )
+    lesson: CoachingResponse

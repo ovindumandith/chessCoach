@@ -1,0 +1,187 @@
+"""Lesson generation: retrieve evidence -> LLM -> validate -> (retry | fallback) -> persist.
+
+The student never sees an unvalidated LLM response. If the provider is disabled, fails,
+or keeps failing validation, a deterministic template lesson built from the same evidence
+is returned and recorded as a fallback.
+"""
+
+import hashlib
+import json
+import logging
+import uuid
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import ValidationError
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from chesscoach.coaching.fallback import TEMPLATE_VERSION, build_fallback
+from chesscoach.coaching.providers import LLMError, LLMProvider, get_provider
+from chesscoach.coaching.retrieval import build_context
+from chesscoach.coaching.schemas import CoachingContext, CoachingResponse, strict_json_schema
+from chesscoach.coaching.validation import validate_response
+from chesscoach.core.access import require_student_access
+from chesscoach.core.audit import record_audit
+from chesscoach.core.config import get_settings
+from chesscoach.db.enums import ValidationStatus
+from chesscoach.db.models import CoachingSession, Game, User
+
+log = logging.getLogger("chesscoach.coaching")
+
+PROMPT_VERSION = "chess_coach_v1"
+PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts"
+
+
+@lru_cache
+def load_prompt(version: str = PROMPT_VERSION) -> str:
+    local = Path("prompts") / f"{version}.txt"  # /app/prompts in Docker
+    path = local if local.is_file() else PROMPTS_DIR / f"{version}.txt"
+    return path.read_text(encoding="utf-8")
+
+
+@lru_cache
+def response_schema() -> dict:
+    return strict_json_schema(CoachingResponse)
+
+
+@dataclass
+class LessonResult:
+    session: CoachingSession
+    response: CoachingResponse
+    used_fallback: bool
+
+
+def generate_lesson(
+    db: Session,
+    user: User,
+    student_id: uuid.UUID,
+    *,
+    skill_code: str | None = None,
+    subskill_code: str | None = None,
+    provider: LLMProvider | None = None,
+) -> LessonResult:
+    require_student_access(db, user, student_id)
+    settings = get_settings()
+    ctx = build_context(db, student_id, skill_code=skill_code, subskill_code=subskill_code)
+    _check_ownership(db, student_id, ctx)
+    provider = provider if provider is not None else get_provider(settings)
+
+    attempts: list[dict] = []
+    usage_total = {"input_tokens": 0, "output_tokens": 0}
+    latency = 0
+    accepted: CoachingResponse | None = None
+    served_model = None
+    feedback: list[str] = []
+
+    if provider is not None:
+        for attempt in range(settings.llm_validation_retries + 1):
+            record = {"attempt": attempt + 1}
+            try:
+                result = provider.generate(
+                    system=load_prompt(),
+                    user=_user_message(ctx, feedback),
+                    schema=response_schema(),
+                )
+            except LLMError as exc:
+                record["error"] = str(exc)
+                attempts.append(record)
+                log.warning("LLM call failed for student %s: %s", student_id, exc)
+                break  # transport retries already happened inside the provider
+            latency += result.latency_ms
+            for k in usage_total:
+                usage_total[k] += result.usage.get(k) or 0
+            served_model = result.model
+            record.update({"model": result.model, "usage": result.usage, **result.metadata})
+            try:
+                candidate = CoachingResponse.model_validate(result.data)
+                errors = validate_response(candidate, ctx)
+            except ValidationError as exc:
+                candidate, errors = None, [f"schema: {e['loc']} {e['msg']}" for e in exc.errors()]
+            record["validation_errors"] = errors
+            attempts.append(record)
+            if not errors:
+                accepted = candidate
+                break
+            feedback = errors
+
+    used_fallback = accepted is None
+    response = accepted or build_fallback(ctx)
+    final_errors = validate_response(response, ctx)
+    if final_errors:  # a template bug must never reach a student silently
+        raise RuntimeError(f"Fallback lesson failed validation: {final_errors}")
+
+    session = CoachingSession(
+        student_id=student_id,
+        model_provider=provider.name if provider and not used_fallback else "template",
+        model_id=served_model if not used_fallback else TEMPLATE_VERSION,
+        prompt_version=PROMPT_VERSION,
+        evidence_references=[
+            {"observation_id": p.observation_id, "game_id": p.game_id, "ply": p.ply}
+            for p in ctx.positions
+        ],
+        request_metadata={
+            "context_hash": _context_hash(ctx),
+            "profile_version": ctx.profile_version,
+            "objective": {
+                "skill_code": ctx.objective.skill_code,
+                "subskill_code": ctx.objective.subskill_code,
+            },
+            "llm_enabled": provider is not None,
+            "attempts": attempts,
+        },
+        response_json=response.model_dump(),
+        validation_status=ValidationStatus.FALLBACK if used_fallback else ValidationStatus.VALID,
+        validation_errors=[e for a in attempts for e in a.get("validation_errors", [])]
+        + [a["error"] for a in attempts if "error" in a],
+        token_usage=usage_total,
+        latency_ms=latency or None,
+    )
+    db.add(session)
+    db.flush()
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="coaching.lesson",
+        entity_type="coaching_session",
+        entity_id=session.id,
+        details={
+            "student_id": str(student_id),
+            "fallback": used_fallback,
+            "attempts": len(attempts),
+        },
+    )
+    db.commit()
+    return LessonResult(session, response, used_fallback)
+
+
+def list_sessions(
+    db: Session, user: User, student_id: uuid.UUID, *, limit: int, offset: int
+) -> tuple[list[CoachingSession], int]:
+    require_student_access(db, user, student_id)
+    query = select(CoachingSession).where(CoachingSession.student_id == student_id)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = db.scalars(
+        query.order_by(CoachingSession.created_at.desc()).limit(limit).offset(offset)
+    ).all()
+    return list(rows), total
+
+
+def _user_message(ctx: CoachingContext, feedback: list[str]) -> str:
+    payload = {"context": ctx.model_dump()}
+    if feedback:
+        payload["previous_attempt_rejected_because"] = feedback
+    return json.dumps(payload, sort_keys=True)
+
+
+def _context_hash(ctx: CoachingContext) -> str:
+    return hashlib.sha256(json.dumps(ctx.model_dump(), sort_keys=True).encode()).hexdigest()
+
+
+def _check_ownership(db: Session, student_id: uuid.UUID, ctx: CoachingContext) -> None:
+    """Defence in depth: every referenced game must belong to this student."""
+    ids = {uuid.UUID(p.game_id) for p in ctx.positions}
+    owned = set(db.scalars(select(Game.id).where(Game.id.in_(ids), Game.student_id == student_id)))
+    if owned != ids:
+        raise RuntimeError("Coaching context referenced games outside the student's record")

@@ -6,7 +6,7 @@ ChessMentor AI is a personalized chess coaching platform. It analyzes students' 
 - Rules for contributors and agents: [`AGENTS.md`](AGENTS.md)
 - Design documents: [`docs/`](docs/), including the architecture, data model, research plan and implementation plan
 
-**Status:** Phases 1–3 are done (foundation, students, PGN import, Stockfish analysis). See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+**Status:** Phases 1–6 are done: foundation, students and PGN import, Stockfish analysis, weakness classification with coach review, versioned student profiles, and LLM coaching with validation. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start: local, without Docker
 
@@ -67,6 +67,20 @@ curl -X PATCH localhost:8000/api/v1/games/<game_id>/mapping -H "Content-Type: ap
 curl -X POST localhost:8000/api/v1/games/<game_id>/analyze
 curl localhost:8000/api/v1/analysis-jobs/<job_id>
 curl localhost:8000/api/v1/games/<game_id>/analysis
+```
+
+## LLM coaching
+
+Lessons are generated from the student's profile and stored engine evidence. LLM output is shown only after chess and evidence validation. Otherwise a deterministic template lesson is returned, so coaching keeps working without an LLM.
+
+```bash
+# .env
+LLM_ENABLED=true
+LLM_PROVIDER=anthropic        # or openai_compatible (+ LLM_BASE_URL)
+LLM_MODEL=claude-opus-5-5
+# LLM_API_KEY=...             # or leave empty to use ANTHROPIC_API_KEY / an `ant auth login` profile
+
+curl -X POST localhost:8000/api/v1/students/<id>/coaching/lessons
 ```
 
 ## Running the analysis worker locally

@@ -33,10 +33,19 @@ class Settings(BaseSettings):
     # A running job not finished within this time is assumed abandoned (worker crash).
     worker_stale_after_seconds: int = Field(default=1800, ge=60)
 
-    llm_provider: str = "openai_compatible"
+    # LLM calls are opt-in: with llm_enabled=False every lesson uses the deterministic
+    # template fallback, so tests and keyless setups never touch the network.
+    llm_enabled: bool = False
+    llm_provider: Literal["anthropic", "openai_compatible"] = "anthropic"
+    # Anthropic: empty key lets the SDK resolve credentials (ANTHROPIC_API_KEY or profile).
     llm_api_key: str = ""
-    llm_base_url: str = ""
-    llm_model: str = ""
+    llm_base_url: str = ""  # required for openai_compatible
+    llm_model: str = "claude-opus-5-5"
+    llm_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    llm_max_tokens: int = Field(default=16000, ge=1000)
+    llm_timeout_seconds: float = Field(default=120.0, gt=0)
+    llm_max_retries: int = Field(default=2, ge=0)  # transport retries (429/5xx/network)
+    llm_validation_retries: int = Field(default=1, ge=0)  # regenerate after failed checks
 
     storage_dir: Path = Path("./data/uploads")
     pgn_max_upload_mb: int = Field(default=25, ge=1)

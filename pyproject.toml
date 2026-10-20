@@ -19,6 +19,8 @@ dependencies = [
     "chess==1.11.2",
     "python-multipart==0.0.20",
     "pyyaml==6.0.3",
+    "anthropic==1.15.0",
+    "httpx==0.28.1",
 ]
 
 [project.optional-dependencies]
