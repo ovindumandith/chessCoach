@@ -7,7 +7,7 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 | 1 | Repo, config, DB models, Alembic, health endpoint, Docker Compose | ✅ |
 | 2 | Student management and PGN import (aliases, mapping, deduplication, report) | ✅ |
 | 3 | Stockfish integration, job worker, persisted move analysis (two-pass) | ✅ |
-| 4 | Skill taxonomy, candidate detectors, coach review endpoints | ⏳ |
+| 4 | Skill taxonomy, candidate detectors, coach review endpoints | ✅ |
 | 5 | Longitudinal profiles, Beta-Binomial smoothing, priority heuristic | ⏳ |
 | 6 | LLM adapter, evidence retrieval, structured lessons, validation, fallback | ⏳ |
 | 7 | Exercises and attempt tracking | ⏳ |
@@ -79,9 +79,38 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 - Evaluations are single searches at a fixed depth. Stability across repeated or deeper searches is only checked for critical plies.
 - The critical threshold (10% win-probability loss) is an untested default. Calibrate it against coach labels.
 
-## Phase 4 — Taxonomy, detectors, coach review (next)
+## Phase 4 — Taxonomy, detectors, coach review
 
-- `config/skill_taxonomy.yaml` (versioned), including `unclassified` and `insufficient_evidence`.
-- v1 rules: move-quality evidence from win-probability loss, phase, and only-move gap. v2: a few verifiable motif detectors (hanging piece, fork, missed mate in N) checked with python-chess.
-- `weakness_observations` keep move-quality, motif and skill-inference evidence separate, each with `classifier_version`.
-- Coach review endpoints: confirm, reject or correct, with audit events.
+- `config/skill_taxonomy.yaml` (`taxonomy-v1`): 8 categories and 34 subskills, plus `unclassified` and `insufficient_evidence`. Each subskill is marked with whether classifier-v1 can produce it automatically. Opening knowledge is deliberately never inferred automatically.
+- `classification/motifs.py` (`motifs-v1`): python-chess checks for forks, hanging pieces and mates.
+  - Applied to the engine's best move (*missed*) and to the engine's best reply (*allowed*).
+  - Uses legal moves only, so pinned pieces can't capture.
+  - Pawns are excluded as targets.
+- `classification/classifier.py` (`classifier-v1`):
+  - Severity bands use Lichess-style win-probability thresholds.
+  - Forced moves are skipped.
+  - A motif is reported only when the engine says it mattered.
+  - Skill-inference rules cover: error in an endgame (low confidence), error while winning, missed only move, and error in time trouble.
+  - Anything left unexplained is stored as `unclassified`.
+- Skill opportunities record where a tactic was available **and needed** (gap to the second-best line ≥ 0.08), with the outcome converted or missed. These are the denominators for Phase 5 error rates.
+- `analysis-v2` stores the engine's best reply to each student move, which is needed for *allowed* motifs.
+- Classification runs automatically after the final analysis pass. Re-running it is idempotent and keeps reviewed rows.
+- API:
+  - `GET /taxonomy`
+  - `POST /games/{id}/classify`
+  - `GET /students/{id}/weaknesses`, filterable, with the move evidence attached
+  - `PATCH /observations/{id}/review` to confirm, reject or correct, with an audit trail
+  - Students never see rejected findings and cannot review.
+- Verified end to end with real Stockfish 18 on PostgreSQL, using the Blackburne Shilling trap.
+
+### Known limitations and Phase 5 inputs
+
+- Detectors don't yet cover pins, skewers, discovered attacks, or double attacks on a pawn plus a piece. 4…Qg5 in the Blackburne trap stays `unclassified`.
+- Opportunity rows exist only for "missed" motifs. For "allowed" motifs, the denominator in Phase 5 is the number of analyzed moves.
+- All thresholds are untested defaults. The coach-review data is the benchmark for tuning them.
+
+## Phase 5 — Longitudinal profiles (next)
+
+- Aggregate per skill: opportunities, errors, distinct games, recurrence and severity. Reviewed findings outweigh candidates, and rejected ones are excluded.
+- Beta-Binomial smoothed rates, profile states (insufficient evidence, emerging, recurring), and a versioned priority heuristic.
+- Versioned snapshots with incremental updates. `GET /students/{id}/profile`.

@@ -24,7 +24,9 @@ from chesscoach.analysis.scores import (
 )
 from chesscoach.db.enums import Color, GamePhase
 
-ANALYSIS_VERSION = "analysis-v1"
+# v2: also stores the engine's best reply to the student's move (`refutation_pv`), which
+# the motif detectors need to check what a move allowed.
+ANALYSIS_VERSION = "analysis-v2"
 
 
 @dataclass
@@ -114,7 +116,9 @@ def analyze_game(
 
         board.push(move)
         fen_after = board.fen()
-        eval_after, after_depth = _evaluate_after(board, color, analyzer, settings, game_key)
+        eval_after, after_depth, reply_pv = _evaluate_after(
+            board, color, analyzer, settings, game_key
+        )
         played_best = best_move is not None and move == best_move
         loss = move_loss(eval_before, eval_after, played_best=played_best)
 
@@ -125,6 +129,8 @@ def analyze_game(
                 "only_move_gap_wp": _gap(eval_before, second_best),
                 "pv_san": _pv_san(fen_before, best.pv),
                 "after_search_depth": after_depth,
+                "refutation_pv": [m.uci() for m in reply_pv],
+                "refutation_san": _pv_san(fen_after, reply_pv),
             }
         )
         if board.is_game_over():
@@ -158,22 +164,24 @@ def analyze_game(
     return records
 
 
-def _evaluate_after(board, color, analyzer, settings, game_key) -> tuple[Evaluation, int | None]:
+def _evaluate_after(
+    board, color, analyzer, settings, game_key
+) -> tuple[Evaluation, int | None, list[chess.Move]]:
     """Evaluate the position after the student's move, handling terminal positions ourselves.
 
     Engines report a checkmated side-to-move as Mate(-0), whose sign is lost after POV
     normalization, so terminal results are derived from the rules instead.
     """
     if board.is_checkmate():
-        return checkmate_delivered(), None
+        return checkmate_delivered(), None, []
     if board.is_stalemate() or board.is_insufficient_material():
-        return Evaluation(cp=0), None
+        return Evaluation(cp=0), None, []
     lines: list[EngineLine] = analyzer.analyse(
         board, depth=settings.depth, multipv=1, game_key=game_key
     )
     if not lines:
         raise RuntimeError("Engine returned no evaluation after move")
-    return from_pov_score(lines[0].score, color), lines[0].depth
+    return from_pov_score(lines[0].score, color), lines[0].depth, lines[0].pv
 
 
 def _position_features(board: chess.Board, move: chess.Move, color: chess.Color) -> dict:

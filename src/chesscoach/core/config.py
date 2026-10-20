@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("./data/uploads")
     pgn_max_upload_mb: int = Field(default=25, ge=1)
 
+    # Relative paths resolve against the working directory (repo root locally, /app in Docker).
+    taxonomy_path: Path = Path("config/skill_taxonomy.yaml")
+
     analysis_max_concurrent_games: int = Field(default=2, ge=1)
 
     @property

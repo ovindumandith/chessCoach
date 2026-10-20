@@ -29,6 +29,7 @@ from chesscoach.db.enums import (
     ImportStatus,
     JobStatus,
     MappingStatus,
+    OpportunityOutcome,
     PlanStatus,
     ProfileState,
     ReviewStatus,
@@ -272,6 +273,32 @@ class WeaknessObservation(Base):
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     reviewed_at: Mapped[datetime | None] = mapped_column()
     review_note: Mapped[str | None] = mapped_column(Text)
+    details: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
+class SkillOpportunity(Base):
+    """A position where a detectable skill was actually tested (e.g. a fork was available
+    and needed). Denominator for opportunity-adjusted error rates in profiles."""
+
+    __tablename__ = "skill_opportunities"
+
+    id: Mapped[uuid.UUID] = _pk()
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    game_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("games.id", ondelete="CASCADE"), index=True
+    )
+    move_analysis_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("move_analyses.id", ondelete="CASCADE"), index=True
+    )
+    skill_code: Mapped[str] = mapped_column(String(64), index=True)
+    subskill_code: Mapped[str | None] = mapped_column(String(64))
+    outcome: Mapped[OpportunityOutcome] = mapped_column(
+        str_enum(OpportunityOutcome, "opportunity_outcome")
+    )
+    classifier_version: Mapped[str] = mapped_column(String(32))
     details: Mapped[dict[str, Any]] = mapped_column(default=dict)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
 

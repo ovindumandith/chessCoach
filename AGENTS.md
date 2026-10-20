@@ -22,6 +22,7 @@ Read `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md` before you change 
 
 - `ingestion/` parses and stores PGNs. It never calls the engine or the LLM.
 - `analysis/` runs Stockfish and computes move features. It never writes coaching text or profiles.
+- `classification/` turns stored engine evidence into candidate observations and skill opportunities, and handles coach review. It reads analysis rows only and never calls the engine.
 - `profiling/` aggregates observations into versioned snapshots. It never treats unreviewed candidates as ground truth.
 - `coaching/` retrieves evidence, calls the LLM and validates output. Only this module talks to the LLM.
 - `exercises/` handles exercise selection and attempts.
@@ -35,7 +36,9 @@ Read `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md` before you change 
 - Store mate scores separately (`*_mate` columns). Never silently convert a mate score to centipawns.
 - Only compute centipawn loss when both scores are ordinary centipawn values.
 - Only the student's own moves count toward move-quality statistics.
-- A high evaluation loss alone does not justify a motif or skill label.
+- A high evaluation loss alone does not justify a motif or skill label. Engine-confirmed errors with no verified cause are stored as `unclassified`.
+- Motifs are reported only when the board check (python-chess) **and** the engine evidence agree.
+- Reclassification never deletes or duplicates coach-reviewed observations.
 
 ## Engineering rules
 

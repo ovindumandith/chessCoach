@@ -73,7 +73,7 @@ def test_queue_process_and_read_analysis(client, db, imported, settings):
     status = client.get(f"{API}/analysis-jobs/{job['id']}").json()
     assert status["status"] == "completed"
     assert status["engine_name"] == "FakeFish"
-    assert status["configuration"]["analysis_version"] == "analysis-v1"
+    assert status["configuration"]["analysis_version"] == "analysis-v2"
     assert status["configuration"]["depth"] == 8
     assert status["configuration"]["student_color"] == "white"
 

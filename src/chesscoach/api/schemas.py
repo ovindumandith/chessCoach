@@ -2,11 +2,20 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from chesscoach.db.enums import AnalysisPass, Color, GamePhase, GameResult, JobStatus, MappingStatus
+from chesscoach.db.enums import (
+    AnalysisPass,
+    Color,
+    EvidenceType,
+    GamePhase,
+    GameResult,
+    JobStatus,
+    MappingStatus,
+    ReviewStatus,
+)
 
 
 class ORMModel(BaseModel):
@@ -171,3 +180,106 @@ class GameAnalysisOut(BaseModel):
     moves: list[MoveAnalysisOut]
     critical: AnalysisJobOut | None
     critical_moves: list[MoveAnalysisOut]
+
+
+# --------------------------------------------------------------------------- classification
+
+
+class ClassifyResultOut(BaseModel):
+    game_id: uuid.UUID
+    baseline_run_id: uuid.UUID
+    critical_run_id: uuid.UUID | None
+    moves_classified: int
+    observations: int
+    opportunities: int
+    preserved_reviewed: int
+    classifier_version: str
+
+
+class MoveEvidenceOut(BaseModel):
+    """The analyzed position an observation is based on (student's point of view)."""
+
+    move_analysis_id: uuid.UUID
+    ply: int
+    fen_before: str
+    san_move: str
+    uci_move: str
+    best_move_uci: str | None
+    best_line_san: list[str]
+    refutation_san: list[str]
+    eval_before_cp: int | None
+    eval_before_mate: int | None
+    eval_after_cp: int | None
+    eval_after_mate: int | None
+    win_prob_loss: float | None
+    phase: GamePhase
+
+
+class WeaknessOut(BaseModel):
+    id: uuid.UUID
+    student_id: uuid.UUID
+    game_id: uuid.UUID
+    skill_code: str
+    subskill_code: str | None
+    evidence_type: EvidenceType
+    severity: float | None
+    confidence: float | None
+    confidence_note: str = "Ordinal heuristic, not a calibrated probability."
+    classifier_version: str
+    taxonomy_version: str
+    review_status: ReviewStatus
+    reviewed_at: datetime | None
+    review_note: str | None
+    details: dict[str, Any]
+    created_at: datetime
+    game_white: str
+    game_black: str
+    game_played_at: date | None
+    evidence: MoveEvidenceOut
+
+    @classmethod
+    def from_view(cls, view) -> "WeaknessOut":
+        o, m, g = view.observation, view.move, view.game
+        return cls(
+            id=o.id,
+            student_id=o.student_id,
+            game_id=o.game_id,
+            skill_code=o.skill_code,
+            subskill_code=o.subskill_code,
+            evidence_type=o.evidence_type,
+            severity=o.severity,
+            confidence=o.confidence,
+            classifier_version=o.classifier_version,
+            taxonomy_version=o.taxonomy_version,
+            review_status=o.review_status,
+            reviewed_at=o.reviewed_at,
+            review_note=o.review_note,
+            details=o.details,
+            created_at=o.created_at,
+            game_white=g.white_name,
+            game_black=g.black_name,
+            game_played_at=g.played_at,
+            evidence=MoveEvidenceOut(
+                move_analysis_id=m.id,
+                ply=m.ply,
+                fen_before=m.fen_before,
+                san_move=m.san_move,
+                uci_move=m.uci_move,
+                best_move_uci=m.best_move_uci,
+                best_line_san=m.features.get("pv_san", []),
+                refutation_san=m.features.get("refutation_san", []),
+                eval_before_cp=m.eval_before_cp,
+                eval_before_mate=m.eval_before_mate,
+                eval_after_cp=m.eval_after_cp,
+                eval_after_mate=m.eval_after_mate,
+                win_prob_loss=m.win_prob_loss,
+                phase=m.phase,
+            ),
+        )
+
+
+class ReviewRequest(BaseModel):
+    action: Literal["confirm", "reject", "correct"]
+    skill_code: str | None = Field(default=None, description="Required for 'correct'.")
+    subskill_code: str | None = None
+    note: str | None = Field(default=None, max_length=2000)

@@ -23,6 +23,7 @@ The source of truth is `src/chesscoach/db/models.py`. Schema changes go through 
 | `analysis_runs` | One engine pass over a game (also the job queue) | `game_id`, `engine_name/version/checksum`, `configuration`, `analysis_version`, `pass_type` (baseline/critical), `status`, `attempts`, `claimed_by`, `started_at`, `completed_at`, `error_message` |
 | `move_analyses` | Analysis of one student move | `analysis_run_id`, `ply` (unique per run), `fen_before/after`, `uci_move`, `san_move`, `student_move`, `phase`, `eval_before_cp`, `eval_after_cp`, `eval_before_mate`, `eval_after_mate`, `best_move_uci`, `principal_variation`, `best_move_loss_cp`, `win_prob_loss`, `clock_before_ms`, `clock_after_ms` |
 | `weakness_observations` | Candidate or confirmed skill evidence | `student_id`, `game_id`, `move_analysis_id`, `skill_code`, `subskill_code`, `evidence_type` (move_quality/motif/skill_inference), `severity`, `confidence`, `classifier_version`, `review_status`, `reviewed_by`, `reviewed_at`, `details` |
+| `skill_opportunities` | A position where a detectable skill was actually tested (error-rate denominator) | `student_id`, `game_id`, `move_analysis_id`, `skill_code`, `subskill_code`, `outcome` (converted/missed), `classifier_version`, `details` |
 | `student_skill_profiles` | Versioned per-skill snapshot | `student_id`, `skill_code`, `profile_version`, `state`, `error_rate`, `opportunity_count`, `error_count`, `games_affected`, `confidence`, `priority_score`, `evidence_summary`, `settings` |
 | `learning_plans` | Objectives for a student | `profile_version`, `objective`, `weekly_goals`, `recommended_skills`, `status` |
 | `coaching_sessions` | One LLM (or fallback) lesson | `model_provider`, `model_id`, `prompt_version`, `evidence_references`, `request_metadata`, `response_json`, `validation_status`, `token_usage`, `latency_ms` |
@@ -44,6 +45,16 @@ The source of truth is `src/chesscoach/db/models.py`. Schema changes go through 
 - Two-pass analysis:
   - A `critical` run's `configuration` holds `parent_run_id`, `plies` and `depth`.
   - Every run's `configuration` records `analysis_version`, `scores_version`, `phase_rules_version`, `depth`, `multipv`, `critical_wp_loss`, `engine_options` and `student_color`.
+
+## `weakness_observations` conventions
+
+- `evidence_type` is one of:
+  - `motif`: verified on the board and backed by the engine
+  - `skill_inference`: a context rule; `details.rule` names it
+  - `move_quality`: an engine-confirmed error with no verified cause. `skill_code` is `unclassified`.
+- `severity` is the win-probability loss (0–1). `details.band` is one of inaccuracy, mistake or blunder.
+- `confidence` is ordinal: 0.8 high, 0.5 medium, 0.3 low. It is not a calibrated probability.
+- A correction keeps the classifier's label in `details.original`, so reclassifying never regenerates it.
 
 ## Status enums
 

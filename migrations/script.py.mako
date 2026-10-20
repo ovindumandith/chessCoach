@@ -8,6 +8,7 @@ Create Date: ${create_date}
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import Text  # noqa: F401  (autogenerate renders JSONB as astext_type=Text())
 from alembic import op
 ${imports if imports else ""}
 import chesscoach.db.types

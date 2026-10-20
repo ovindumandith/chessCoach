@@ -1,0 +1,87 @@
+# ChessMentor AI skill taxonomy.
+#
+# This is a proposed taxonomy (project.md §13), not a claim that every skill can be inferred
+# from PGNs alone. `auto` lists what classifier-v1 can produce on its own; everything else
+# is reachable only through coach correction. Bump `version` on any change: observations
+# store the taxonomy version they were created under.
+
+version: taxonomy-v1
+
+special:
+  unclassified:
+    name: Unclassified
+    description: >-
+      A move-quality issue confirmed by the engine for which no reliable skill
+      explanation was found. Never guess a cause.
+  insufficient_evidence:
+    name: Insufficient evidence
+    description: Too little data to say anything about this skill yet.
+
+categories:
+  tactical_awareness:
+    name: Tactical awareness
+    subskills:
+      forks: {name: Forks, auto: true}
+      pins: {name: Pins, auto: false}
+      skewers: {name: Skewers, auto: false}
+      discovered_attacks: {name: Discovered attacks, auto: false}
+      hanging_pieces: {name: Hanging pieces, auto: true}
+      mating_patterns: {name: Mating patterns, auto: true}
+
+  calculation:
+    name: Calculation
+    subskills:
+      forcing_variations: {name: Forcing variations, auto: false}
+      intermediate_moves: {name: Intermediate moves, auto: false}
+      defensive_resources: {name: Defensive resources, auto: false}
+      variation_accuracy: {name: Variation accuracy, auto: false}
+
+  positional_play:
+    name: Positional play
+    subskills:
+      pawn_structure: {name: Pawn structure, auto: false}
+      weak_squares: {name: Weak squares, auto: false}
+      piece_activity: {name: Piece activity, auto: false}
+      king_safety: {name: King safety, auto: false}
+      strategic_planning: {name: Strategic planning, auto: false}
+
+  opening_knowledge:
+    name: Opening knowledge
+    # Deliberately not auto-inferred: one inaccurate opening move does not show a lack of
+    # opening knowledge (the player may have chosen a playable sideline on purpose).
+    subskills:
+      development: {name: Development, auto: false}
+      opening_principles: {name: Opening principles, auto: false}
+      repertoire_deviations: {name: Repertoire deviations, auto: false}
+      opening_traps: {name: Opening traps, auto: false}
+
+  endgame_technique:
+    name: Endgame technique
+    subskills:
+      king_activity: {name: King activity, auto: false}
+      pawn_endgames: {name: Pawn endgames, auto: true}
+      rook_endgames: {name: Rook endgames, auto: true}
+      general_endgames: {name: Other endgames, auto: true}
+      conversion: {name: Endgame conversion, auto: false}
+      defensive_holds: {name: Defensive holds, auto: false}
+
+  defensive_skills:
+    name: Defensive skills
+    subskills:
+      finding_resources: {name: Finding resources, auto: true}
+      threat_prevention: {name: Threat prevention, auto: true}
+      simplifying_under_pressure: {name: Simplifying under pressure, auto: false}
+
+  winning_position_conversion:
+    name: Winning-position conversion
+    subskills:
+      preserving_advantage: {name: Preserving advantages, auto: true}
+      practical_continuations: {name: Practical continuations, auto: false}
+      reducing_counterplay: {name: Reducing counterplay, auto: false}
+
+  practical_play:
+    name: Practical play
+    subskills:
+      time_management: {name: Time management, auto: true}
+      decision_consistency: {name: Decision consistency, auto: false}
+      complex_positions: {name: Handling complex positions, auto: false}

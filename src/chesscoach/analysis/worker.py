@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from chesscoach.analysis.engine import EngineConfig, PositionAnalyzer, StockfishAnalyzer
 from chesscoach.analysis.game_analyzer import AnalysisSettings, MoveRecord, analyze_game, versions
+from chesscoach.classification.service import classify_game
 from chesscoach.core.config import Settings, get_settings
 from chesscoach.db.enums import AnalysisPass, JobStatus, MappingStatus
 from chesscoach.db.models import AnalysisRun, Game, MoveAnalysis
@@ -176,6 +177,7 @@ def run_once(db: Session, analyzer: PositionAnalyzer, settings: Settings, claima
     try:
         process_run(db, run, analyzer, settings)
         log.info("Completed analysis run %s", run.id)
+        _classify_if_final(db, run)
     except chess.engine.EngineTerminatedError:
         mark_failure(db, run.id, RuntimeError("Engine process terminated"), settings)
         raise  # caller restarts the engine
@@ -183,6 +185,35 @@ def run_once(db: Session, analyzer: PositionAnalyzer, settings: Settings, claima
         log.exception("Analysis run %s failed", run.id)
         mark_failure(db, run.id, exc, settings)
     return True
+
+
+def _classify_if_final(db: Session, run: AnalysisRun) -> None:
+    """Derive candidate observations once the last analysis pass for the game is done.
+
+    Classification lives in its own module and only reads stored evidence. A failure here
+    is logged but never fails the analysis run, which can be reclassified later.
+    """
+    if run.pass_type == AnalysisPass.BASELINE:
+        pending_critical = db.scalars(
+            select(AnalysisRun.id).where(
+                AnalysisRun.game_id == run.game_id,
+                AnalysisRun.pass_type == AnalysisPass.CRITICAL,
+                AnalysisRun.status.in_((JobStatus.QUEUED, JobStatus.RUNNING)),
+            )
+        ).first()
+        if pending_critical is not None:
+            return
+    try:
+        result = classify_game(db, run.game_id)
+        log.info(
+            "Classified game %s: %d observations, %d opportunities",
+            run.game_id,
+            result.observations,
+            result.opportunities,
+        )
+    except Exception:
+        db.rollback()
+        log.exception("Classification failed for game %s", run.game_id)
 
 
 def _to_row(run_id: uuid.UUID, r: MoveRecord) -> MoveAnalysis:

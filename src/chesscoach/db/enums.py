@@ -90,3 +90,8 @@ class ValidationStatus(StrEnum):
     VALID = "valid"
     INVALID = "invalid"
     FALLBACK = "fallback"
+
+
+class OpportunityOutcome(StrEnum):
+    CONVERTED = "converted"  # the student found the key move (or an equally good one)
+    MISSED = "missed"  # the student played something clearly worse
