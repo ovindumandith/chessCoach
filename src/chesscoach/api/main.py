@@ -9,6 +9,7 @@ from chesscoach import __version__
 from chesscoach.api.routes import (
     analysis,
     coaching,
+    exercises,
     games,
     health,
     profiles,
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(weaknesses.router, prefix=API_PREFIX)
     app.include_router(profiles.router, prefix=API_PREFIX)
     app.include_router(coaching.router, prefix=API_PREFIX)
+    app.include_router(exercises.router, prefix=API_PREFIX)
     return app
 
 

@@ -28,8 +28,8 @@ The source of truth is `src/chesscoach/db/models.py`. Schema changes go through 
 | `student_skill_profiles` | Per-skill row inside a snapshot (`snapshot_id`, `subskill_code`) | `student_id`, `skill_code`, `profile_version`, `state`, `error_rate`, `opportunity_count`, `error_count`, `games_affected`, `confidence`, `priority_score`, `evidence_summary`, `settings` |
 | `learning_plans` | Objectives for a student | `profile_version`, `objective`, `weekly_goals`, `recommended_skills`, `status` |
 | `coaching_sessions` | One LLM (or fallback) lesson | `model_provider`, `model_id`, `prompt_version`, `evidence_references`, `request_metadata`, `response_json`, `validation_status`, `token_usage`, `latency_ms` |
-| `exercises` | A practice position | `student_id`, `skill_code`, `source_game_id`, `source_move_analysis_id`, `start_fen`, `accepted_moves`, `solution_source`, `validation_status`, `difficulty`, `explanation` |
-| `exercise_attempts` | A student's attempt | `exercise_id`, `student_id`, `submitted_move`, `is_correct`, `hints_used`, `time_taken_ms`, `completed_at` |
+| `exercises` | A practice position | `student_id`, `skill_code`, `subskill_code`, `purpose` (review/practice), `status` (open/solved/failed/revealed), `source_game_id`, `source_move_analysis_id`, `start_fen`, `accepted_moves` (hidden until finished), `solution_source`, `validation_status`, `difficulty`, `explanation`, `max_attempts`, `hints_given`, `details`, `finished_at` |
+| `exercise_attempts` | A student's attempt | `exercise_id`, `student_id`, `submitted_move`, `attempt_number`, `is_correct`, `hints_used`, `time_taken_ms`, `completed_at` |
 | `audit_events` | Sensitive actions | `actor_user_id`, `action`, `entity_type`, `entity_id`, `details`, `created_at` |
 
 ## `move_analyses` conventions

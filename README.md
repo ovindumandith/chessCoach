@@ -6,7 +6,7 @@ ChessMentor AI is a personalized chess coaching platform. It analyzes students' 
 - Rules for contributors and agents: [`AGENTS.md`](AGENTS.md)
 - Design documents: [`docs/`](docs/), including the architecture, data model, research plan and implementation plan
 
-**Status:** Phases 1–6 are done: foundation, students and PGN import, Stockfish analysis, weakness classification with coach review, versioned student profiles, and LLM coaching with validation. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+**Status:** Phases 1–7 are done: foundation, students and PGN import, Stockfish analysis, weakness classification with coach review, versioned student profiles, LLM coaching with validation, and exercises from the student's own games. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start: local, without Docker
 

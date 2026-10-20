@@ -42,3 +42,12 @@ def require_student_access(
 def require_coach_role(user: User) -> None:
     if user.role not in (UserRole.COACH, UserRole.ADMIN):
         raise ForbiddenError("This action requires a coach account")
+
+
+def require_own_student_record(db: Session, user: User, student_id: uuid.UUID) -> Student:
+    """Only the student's own account may act as the student (e.g. answer exercises), so
+    coach activity never pollutes the student's performance data."""
+    student = require_student_access(db, user, student_id)
+    if get_access_level(db, user, student_id) != AccessLevel.SELF:
+        raise ForbiddenError("Only the student's own account can do this")
+    return student

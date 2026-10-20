@@ -23,6 +23,7 @@ from chesscoach.db.models import (
     StudentSkillProfile,
     WeaknessObservation,
 )
+from chesscoach.exercises.history import exercise_history
 
 MAX_POSITIONS = 5
 PREVIOUS_LESSONS = 3
@@ -149,7 +150,7 @@ def build_context(
             }
             for s in lessons
         ],
-        exercise_history=[],  # Phase 7
+        exercise_history=exercise_history(db, student_id),
     )
 
 

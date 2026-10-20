@@ -95,3 +95,15 @@ class ValidationStatus(StrEnum):
 class OpportunityOutcome(StrEnum):
     CONVERTED = "converted"  # the student found the key move (or an equally good one)
     MISSED = "missed"  # the student played something clearly worse
+
+
+class ExercisePurpose(StrEnum):
+    REVIEW = "review"  # a position where the student went wrong on this skill
+    PRACTICE = "practice"  # another position from their games that tests the skill
+
+
+class ExerciseStatus(StrEnum):
+    OPEN = "open"
+    SOLVED = "solved"
+    FAILED = "failed"  # attempts exhausted; solution revealed
+    REVEALED = "revealed"  # student gave up; solution revealed

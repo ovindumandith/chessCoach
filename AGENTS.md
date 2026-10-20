@@ -48,6 +48,12 @@ Read `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md` before you change 
 - Enums are string-backed (`native_enum=False`) so migrations stay simple.
 - Never run long Stockfish work inside a request handler. Queue a job and let the worker run it.
 - Never create tables at app startup in non-test code. Use `alembic upgrade head`.
+- After every new migration, run upgrade, downgrade and upgrade on SQLite, run `alembic check`, and render the PostgreSQL SQL (`alembic upgrade <prev>:head --sql`).
+- SQLite batch mode has two known quirks:
+  - Adding an enum column creates its CHECK constraint twice (enum name plus naming convention).
+  - Dropping the column keeps the CHECK, which breaks the downgrade.
+  - Fix: drop both names first, wrapped in `batch_op.f()`, on SQLite only. See `*_exercise_lifecycle.py`.
+- Adding NOT NULL columns to a table that may hold data needs a guard or a backfill. Never invent values.
 - Secrets come only from environment variables. Never commit `.env` or API keys.
 - Uploaded files are stored by SHA-256 key, never by the user-supplied filename.
 - The unit suite must run without Docker, a live LLM key or Stockfish. Mark engine tests with `@pytest.mark.engine`.

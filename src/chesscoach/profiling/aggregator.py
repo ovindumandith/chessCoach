@@ -41,6 +41,7 @@ SETTINGS = {
     "emerging_min_games": 2,
     "recent_games": 10,
     "max_examples": 5,
+    "min_exercises_for_reliability": 5,
 }
 
 REVIEWED = {"confirmed", "corrected"}
@@ -85,6 +86,13 @@ class OppFact:
     skill_code: str
     subskill_code: str | None
     outcome: str  # converted | missed
+
+
+@dataclass(frozen=True)
+class ExerciseFact:
+    skill_code: str
+    subskill_code: str | None
+    first_try_correct: bool
 
 
 @dataclass
@@ -179,6 +187,7 @@ def build_profile(
     *,
     games_included: int,
     previous: dict[Key, dict] | None = None,
+    exercises: list[ExerciseFact] = (),
     settings: dict = SETTINGS,
 ) -> ProfileResult:
     keys = auto_keys(taxonomy)
@@ -194,6 +203,8 @@ def build_profile(
         )
         for key in keys
     ]
+    for s in skills:
+        s.summary["exercises"] = _exercise_summary(s.key, exercises, settings)
     skills.sort(key=lambda s: (-(s.priority or 0.0), s.skill_code, s.subskill_code or ""))
     return ProfileResult(skills=skills, summary=_summary(moves, observations, games_included))
 
@@ -357,6 +368,20 @@ def _skill(key, moves, observations, opportunities, settings, max_order, previou
         priority=round(priority, 6) if priority is not None else None,
         summary=summary,
     )
+
+
+def _exercise_summary(key: Key, exercises: list[ExerciseFact], settings: dict) -> dict:
+    """First-try exercise accuracy. Informational only: it never changes E, S, R, C,
+    priority or state (a single exercise must not change a profile)."""
+    mine = [e for e in exercises if (e.skill_code, e.subskill_code) == key]
+    correct = sum(1 for e in mine if e.first_try_correct)
+    return {
+        "attempted": len(mine),
+        "solved_first_try": correct,
+        "first_try_accuracy": round(correct / len(mine), 4) if mine else None,
+        "reliable": len(mine) >= settings["min_exercises_for_reliability"],
+        "affects_priority": False,
+    }
 
 
 def _state(

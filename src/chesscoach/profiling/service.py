@@ -36,8 +36,10 @@ from chesscoach.db.models import (
     User,
     WeaknessObservation,
 )
+from chesscoach.exercises.history import with_first_attempts
 from chesscoach.profiling.aggregator import (
     SETTINGS,
+    ExerciseFact,
     MoveFact,
     ObsFact,
     OppFact,
@@ -55,6 +57,7 @@ class Facts:
     opportunities: list[OppFact]
     games_included: int
     fingerprint: str
+    exercises: list[ExerciseFact]
 
 
 def gather_facts(db: Session, student_id: uuid.UUID, *, cutoff: date | None = None) -> Facts:
@@ -142,10 +145,23 @@ def gather_facts(db: Session, student_id: uuid.UUID, *, cutoff: date | None = No
     ]
     fp_parts += sorted([str(o.id), o.outcome.value] for o in opp_rows)
 
+    exercises = []
+    for ex, first in with_first_attempts(db, student_id):
+        if first is None:
+            continue
+        if cutoff is not None and first.completed_at.date() >= cutoff:
+            continue
+        exercises.append(
+            ExerciseFact(
+                ex.skill_code, ex.subskill_code, first.is_correct and first.attempt_number == 1
+            )
+        )
+        fp_parts.append([str(first.id), first.is_correct])
+
     fingerprint = hashlib.sha256(
         json.dumps(fp_parts, sort_keys=True, default=str).encode()
     ).hexdigest()
-    return Facts(moves, observations, opportunities, len(analyzed), fingerprint)
+    return Facts(moves, observations, opportunities, len(analyzed), fingerprint, exercises)
 
 
 @dataclass
@@ -178,6 +194,7 @@ def rebuild_profile(
         facts.opportunities,
         games_included=facts.games_included,
         previous=previous,
+        exercises=facts.exercises,
     )
     version = (
         db.scalar(

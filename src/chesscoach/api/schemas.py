@@ -11,6 +11,8 @@ from chesscoach.db.enums import (
     AnalysisPass,
     Color,
     EvidenceType,
+    ExercisePurpose,
+    ExerciseStatus,
     GamePhase,
     GameResult,
     JobStatus,
@@ -363,3 +365,60 @@ class LessonOut(BaseModel):
         description="True when the deterministic template was used instead of the LLM."
     )
     lesson: CoachingResponse
+
+
+# --------------------------------------------------------------------------- exercises
+
+
+class ExerciseCreate(BaseModel):
+    skill_code: str | None = Field(default=None, description="Defaults to the top priority.")
+    subskill_code: str | None = None
+    count: int = Field(default=5, ge=1, le=10)
+
+
+class ExerciseAttemptOut(BaseModel):
+    attempt_number: int
+    move_uci: str
+    move_san: str
+    is_correct: bool
+    hints_used: int
+    time_taken_ms: int | None
+
+
+class ExerciseOut(BaseModel):
+    """Student-safe view: `solution` is null until the exercise is finished."""
+
+    id: uuid.UUID
+    student_id: uuid.UUID
+    skill_code: str
+    subskill_code: str | None
+    purpose: ExercisePurpose
+    status: ExerciseStatus
+    start_fen: str
+    side_to_move: Color
+    prompt: str
+    difficulty: str | None
+    max_attempts: int
+    attempts: list[ExerciseAttemptOut]
+    hints_given: int
+    hints_available: int
+    created_at: datetime
+    finished_at: datetime | None
+    solution: dict[str, Any] | None
+
+
+class AttemptRequest(BaseModel):
+    move: str = Field(min_length=2, max_length=10, description="UCI (e2e4) or SAN (Nf3).")
+    time_taken_ms: int | None = Field(default=None, ge=0)
+
+
+class AttemptOut(BaseModel):
+    correct: bool
+    attempts_left: int
+    exercise: ExerciseOut
+
+
+class HintOut(BaseModel):
+    hint: str
+    hints_given: int
+    hints_remaining: int

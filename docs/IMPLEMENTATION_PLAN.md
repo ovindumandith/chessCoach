@@ -10,7 +10,7 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 | 4 | Skill taxonomy, candidate detectors, coach review endpoints | ✅ |
 | 5 | Longitudinal profiles, Beta-Binomial smoothing, priority heuristic | ✅ |
 | 6 | LLM adapter, evidence retrieval, structured lessons, validation, fallback | ✅ |
-| 7 | Exercises and attempt tracking | ⏳ |
+| 7 | Exercises and attempt tracking | ✅ |
 | 8 | Frontend, authentication (JWT + roles), authorization hardening | ⏳ |
 | 9 | Research evaluation, end-to-end tests, deployment docs | ⏳ |
 
@@ -189,7 +189,47 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 - No rate limiting on lesson generation yet (Phase 8 security).
 - `exercise_history` is empty until Phase 7.
 
-## Phase 7 — Exercises (next)
+## Phase 7 — Exercises
 
-- Exercises built from analyzed positions (`exercises` table), with the solution from stored engine evidence, re-checked for legality and the "only move" gap.
-- Attempt recording and validation, an exercise history feeding coaching context, and exercise accuracy entering profiles (but never changing a profile from a single attempt).
+- **Selection** (`exercises/selection.py`, `exercise-selection-v1`) draws positions from the student's analyzed games, using deeper critical-pass evidence where available. A position qualifies only when its solution is **unambiguous** by the stored engine evidence:
+  - a forced mate, or a best move at least 0.15 win probability ahead of the second-best line
+  - at least 3 legal moves
+  - the stored best move is legal
+  - For mate-in-1, *every* checkmating move is accepted, verified by the rules.
+- **Relevance per skill:**
+  - tactics: the motif is present in the solution
+  - endgames: phase and endgame type
+  - conversion: the student is winning
+  - finding resources: an only-move defence
+  - coach-labelled skills: positions where an observation names the skill
+- **Purposes:**
+  - *review*: positions where the student went wrong on that skill, ordered by severity
+  - *practice*: other qualifying positions from their games
+  - Positions are never reused for the same student.
+  - `practical_play.time_management` and `unclassified` are not board exercises (409).
+- **Lifecycle:**
+  - open → solved, failed (after 3 attempts), or revealed (gave up)
+  - Solutions are hidden until the exercise is finished.
+  - Three progressive hints: the theme, then the piece, then the square. The theme hint matches attack or defence, because a position where the student *allowed* a mate is a defensive task.
+  - Attempts accept UCI or SAN. Illegal moves get 422 and are **not recorded**.
+  - Only the student's own account may answer, hint or reveal, so coach activity never pollutes the data.
+- **Outcomes:**
+  - `GET /students/{id}/progress` shows first-try accuracy per skill next to the profile trend across snapshot versions.
+  - Profiles carry exercise accuracy in each skill summary, but it is **informational only** (`affects_priority: false`, project.md §11).
+  - Exercise history (outcomes only, never solutions) now fills the coaching context.
+- **API:** `POST/GET /students/{id}/exercises`, `GET /exercises/{id}`, `POST /exercises/{id}/hint`, `POST /exercises/{id}/attempts`, `POST /exercises/{id}/reveal`, `GET /students/{id}/progress`.
+- Verified on PostgreSQL with real Stockfish 18 evidence.
+  - Review exercise: the missed Qxf7#. Practice exercise: the game where Qxf7# was found.
+  - The 7.Be2 position (2 legal moves) and the 5…Bxd1 position (no unique solution) were correctly excluded.
+
+### Known limitations
+
+- Single-move exercises only. Multi-move puzzles would need the full solution line validated move by move.
+- No "avoid the blunder" exercise type yet. In Legal's Mate the lesson is "anything but …Bxd1", which a unique-solution puzzle can't express.
+- No exercises from unseen positions yet, which research-grade pre/post measurement needs. A themed puzzle bank (for example the CC0 Lichess puzzle database) is the natural source, and it's a decision for you to make.
+- Difficulty labels are heuristics from the mate distance or best-move margin.
+
+## Phase 8 — Frontend, authentication, authorization (next)
+
+- JWT authentication with roles, replacing the development stub. Rate limits on lesson and exercise generation.
+- React and TypeScript coach dashboard and student views, with a chessboard (react-chessboard and chess.js) for exercises and game review.

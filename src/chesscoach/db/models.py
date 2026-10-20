@@ -24,6 +24,8 @@ from chesscoach.db.enums import (
     AnalysisPass,
     Color,
     EvidenceType,
+    ExercisePurpose,
+    ExerciseStatus,
     GamePhase,
     GameResult,
     ImportStatus,
@@ -418,19 +420,28 @@ class Exercise(Base):
         ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
     skill_code: Mapped[str] = mapped_column(String(64), index=True)
+    subskill_code: Mapped[str | None] = mapped_column(String(64))
+    purpose: Mapped[ExercisePurpose] = mapped_column(str_enum(ExercisePurpose, "exercise_purpose"))
+    status: Mapped[ExerciseStatus] = mapped_column(
+        str_enum(ExerciseStatus, "exercise_status"), default=ExerciseStatus.OPEN, index=True
+    )
     source_game_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("games.id"))
     source_move_analysis_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("move_analyses.id")
     )
     start_fen: Mapped[str] = mapped_column(String(100))
-    accepted_moves: Mapped[list[Any]] = mapped_column(default=list)
+    accepted_moves: Mapped[list[Any]] = mapped_column(default=list)  # UCI; hidden until done
     solution_source: Mapped[str] = mapped_column(String(64))
     validation_status: Mapped[ValidationStatus] = mapped_column(
         str_enum(ValidationStatus, "validation_status"), default=ValidationStatus.PENDING
     )
     difficulty: Mapped[str | None] = mapped_column(String(32))
     explanation: Mapped[str | None] = mapped_column(Text)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    hints_given: Mapped[int] = mapped_column(Integer, default=0)
+    details: Mapped[dict[str, Any]] = mapped_column(default=dict)
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column()
 
 
 class ExerciseAttempt(Base):
@@ -444,6 +455,7 @@ class ExerciseAttempt(Base):
         ForeignKey("students.id", ondelete="CASCADE"), index=True
     )
     submitted_move: Mapped[str] = mapped_column(String(5))
+    attempt_number: Mapped[int] = mapped_column(Integer, default=1)
     is_correct: Mapped[bool] = mapped_column(Boolean)
     hints_used: Mapped[int] = mapped_column(Integer, default=0)
     time_taken_ms: Mapped[int | None] = mapped_column(Integer)
