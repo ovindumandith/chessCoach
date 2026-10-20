@@ -80,7 +80,46 @@ export interface Game {
   result: string;
   played_at: string | null;
   time_control: string | null;
+  opening_eco: string | null;
   ply_count: number;
+  analysis_status: AnalysisState | null;
+}
+export interface GameDetail extends Game {
+  raw_pgn: string;
+  pgn_headers: Record<string, string>;
+}
+export interface Annotation {
+  ply: number;
+  side: "student" | "opponent";
+  san: string;
+  fen_before: string;
+  verdict: "best" | "good" | "inaccuracy" | "mistake" | "blunder";
+  label: string;
+  symbol: string;
+  /** White's point of view: + = White better. */
+  eval_before: { cp: number | null; mate: number | null; mated?: "white" | "black" };
+  eval_after: { cp: number | null; mate: number | null; mated?: "white" | "black" };
+  win_prob_loss: number;
+  best_move_san: string | null;
+  best_move_uci: string | null;
+  best_line_san: string[];
+  threat_uci: string | null;
+  reasons: string[];
+}
+export interface GameAnnotations {
+  game_id: string;
+  student_color: "white" | "black";
+  annotations: Annotation[];
+  win_chance_white: Record<string, number | null>;
+}
+export type AnalysisState = "not_requested" | "queued" | "running" | "deepening" | "analyzed" | "failed";
+export interface AnalysisStatus {
+  game_id: string;
+  state: AnalysisState;
+  results_available: boolean;
+  jobs_ahead: number | null;
+  error_message: string | null;
+  moves_to_analyze: number;
 }
 export interface ImportReport {
   imported: number;
@@ -109,7 +148,14 @@ export interface MoveAnalysis {
   eval_after_mate: number | null;
   best_move_uci: string | null;
   win_prob_loss: number | null;
-  features: { pv_san?: string[]; refutation_san?: string[]; critical?: boolean; mate_transition?: string };
+  features: {
+    pv_san?: string[];
+    refutation_san?: string[];
+    refutation_pv?: string[];
+    critical?: boolean;
+    mate_transition?: string;
+    played_best?: boolean;
+  };
 }
 export interface GameAnalysis {
   game_id: string;

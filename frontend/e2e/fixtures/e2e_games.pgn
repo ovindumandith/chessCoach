@@ -1,0 +1,19 @@
+[Event "E2E Club"]
+[Site "?"]
+[Date "2024.03.01"]
+[Round "1"]
+[White "E2E Student"]
+[Black "Opponent One"]
+[Result "*"]
+
+1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qe2 Bc5 5. Nf3 d6 *
+
+[Event "E2E Club"]
+[Site "?"]
+[Date "2024.03.08"]
+[Round "2"]
+[White "E2E Student"]
+[Black "Opponent Two"]
+[Result "1-0"]
+
+1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0

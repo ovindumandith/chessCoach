@@ -26,6 +26,7 @@ Read `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md` before you change 
 - `profiling/` aggregates observations into versioned snapshots. It never treats unreviewed candidates as ground truth.
 - `coaching/` retrieves evidence, calls the LLM and validates output. Only this module talks to the LLM.
 - `exercises/` handles exercise selection and attempts.
+- `annotation/` turns stored analysis into display annotations for both sides (verdicts and board-derived reasons). It's display-only: opponent grades never feed profiles.
 - `evaluation/` holds research baselines and metrics. Keep it separate from live services.
 - `api/` holds thin routes. Business logic lives in services, not route handlers.
 - `db/` holds models, session and types. Schema changes always go through an Alembic migration.

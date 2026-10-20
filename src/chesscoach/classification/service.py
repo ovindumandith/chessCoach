@@ -2,6 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -15,7 +16,7 @@ from chesscoach.classification.classifier import (
     parse_base_time,
     versions,
 )
-from chesscoach.classification.taxonomy import get_taxonomy
+from chesscoach.classification.taxonomy import UNCLASSIFIED, get_taxonomy
 from chesscoach.core.access import get_access_level, require_student_access
 from chesscoach.core.audit import record_audit
 from chesscoach.core.errors import ConflictError, NotFoundError, ValidationFailedError
@@ -436,3 +437,88 @@ def _is_student_viewer(db: Session, user: User, student_id: uuid.UUID) -> bool:
     if user.role == UserRole.ADMIN:
         return False
     return get_access_level(db, user, student_id) == AccessLevel.SELF
+
+
+# --------------------------------------------------------------------------- recurring mistakes
+
+
+def game_findings(db: Session, user: User, game_id: uuid.UUID, *, limit: int = 10) -> dict:
+    """Findings per move of one game, each linked to the SAME mistake in the student's other
+    games ("you did this before").
+
+    Same mistake = same skill and subskill AND the same motif kind (missing your own mate is
+    not the same mistake as allowing the opponent's). Unexplained errors are never matched,
+    rejected findings never count.
+    """
+    game = db.get(Game, game_id)
+    if game is None:
+        raise NotFoundError("Game not found")
+    require_student_access(db, user, game.student_id)
+    student_viewer = _is_student_viewer(db, user, game.student_id)
+
+    rows = db.execute(
+        select(WeaknessObservation, MoveAnalysis, Game)
+        .join(MoveAnalysis, MoveAnalysis.id == WeaknessObservation.move_analysis_id)
+        .join(Game, Game.id == WeaknessObservation.game_id)
+        .where(
+            WeaknessObservation.student_id == game.student_id,
+            WeaknessObservation.classifier_version == CLASSIFIER_VERSION,
+            WeaknessObservation.review_status != ReviewStatus.REJECTED,
+        )
+    ).all()
+
+    def key(o: WeaknessObservation):
+        return (o.skill_code, o.subskill_code, o.details.get("motif_kind"))
+
+    def when(g: Game):
+        return (g.played_at is None, g.played_at or date.max, g.created_at)
+
+    by_key: dict[tuple, dict] = {}
+    for o, m, g in rows:
+        if o.skill_code == UNCLASSIFIED:
+            continue
+        # One entry per (game, ply) per mistake type.
+        by_key.setdefault(key(o), {}).setdefault((g.id, m.ply), (o, m, g))
+
+    findings = []
+    for o, m, g in rows:
+        if g.id != game.id:
+            continue
+        others = (
+            []
+            if o.skill_code == UNCLASSIFIED
+            else [v for (gid, _), v in by_key.get(key(o), {}).items() if gid != game.id]
+        )
+        others.sort(key=lambda v: (when(v[2]), v[1].ply))
+        findings.append(
+            {
+                "observation_id": str(o.id),
+                "ply": m.ply,
+                "move_number": (m.ply + 1) // 2,
+                "san_move": m.san_move,
+                "skill_code": o.skill_code,
+                "subskill_code": o.subskill_code,
+                "evidence_type": o.evidence_type.value,
+                "motif_kind": o.details.get("motif_kind"),
+                "severity": o.severity,
+                "review_status": o.review_status.value,
+                "same_mistake_count": len(others),
+                "same_mistake_elsewhere": [
+                    {
+                        "game_id": str(og.id),
+                        "ply": om.ply,
+                        "move_number": (om.ply + 1) // 2,
+                        "san_move": om.san_move,
+                        "played_at": og.played_at.isoformat() if og.played_at else None,
+                        "opponent": og.black_name
+                        if og.student_color and og.student_color.value == "white"
+                        else og.white_name,
+                        "earlier": when(og) < when(game),
+                        "review_status": oo.review_status.value,
+                    }
+                    for oo, om, og in others[:limit]
+                ],
+            }
+        )
+    findings.sort(key=lambda f: (f["ply"], f["skill_code"]))
+    return {"game_id": str(game.id), "student_view": student_viewer, "findings": findings}

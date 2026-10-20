@@ -65,3 +65,9 @@ def review_observation(
         note=body.note,
     )
     return WeaknessOut.from_view(service.get_observation_view(db, obs.id))
+
+
+@router.get("/games/{game_id}/findings")
+def game_findings(game_id: uuid.UUID, db: DbSession, user: CurrentUser) -> dict:
+    """Findings per move, each linked to the same mistake in the student's other games."""
+    return service.game_findings(db, user, game_id)

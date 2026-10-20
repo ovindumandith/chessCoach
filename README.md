@@ -6,7 +6,9 @@ ChessMentor AI is a personalized chess coaching platform. It analyzes students' 
 - Rules for contributors and agents: [`AGENTS.md`](AGENTS.md)
 - Design documents: [`docs/`](docs/), including the architecture, data model, research plan and implementation plan
 
-**Status:** Phases 1–8 are done: foundation, PGN import, Stockfish analysis, weakness classification with coach review, versioned profiles, LLM coaching with validation, exercises, login with roles, and the React coach and student interface. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+**Status:** All nine phases of the MVP are done: PGN import, Stockfish analysis, weakness classification with coach review, versioned profiles, LLM coaching with validation, exercises, login with roles, the React interface, research evaluation, browser end-to-end tests, and operations procedures.
+
+Running it for real? Read [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the production checklist, backups, restores and data deletion. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
 ## Quick start: local, without Docker
 
@@ -129,6 +131,38 @@ pytest                 # unit + integration; needs no Docker, LLM key or Stockfi
 pytest -m engine       # only the real-Stockfish tests (skipped if STOCKFISH_PATH is not set)
 ruff check src tests && ruff format --check src tests
 ```
+
+## Analysing your games
+
+1. Sign in as a coach and add a student, with **PGN player names** set exactly as they appear in your PGN files.
+2. Open the student, go to **Games → Import PGN**, then click **Analyze** on each game.
+3. Open **View** for a game:
+   - every move shows the stored Stockfish verdict
+   - a **live engine** runs in your browser
+   - you can drag pieces to explore lines
+   - mistakes you've made before link to those earlier games
+
+## End-to-end tests
+
+A browser drives the real UI against the running stack: coach import → analysis → review → profile → lesson → student login → solving an exercise by dragging a piece.
+
+```bash
+docker compose up -d
+cd frontend
+E2E_ADMIN_EMAIL=you@example.org E2E_ADMIN_PASSWORD=... npm run e2e
+```
+
+The tests use the system Chrome by default. `PW_CHANNEL=msedge`, or `PW_CHANNEL=chromium` after `npx playwright install chromium`, selects another browser.
+
+## Research evaluation
+
+`python -m chesscoach.evaluation <study> config/experiments/pilot_v1.yaml` covers:
+- a blind annotation sheet and classifier benchmark
+- coach-review precision
+- predictive validity of profiles against a population baseline
+- a blinded A/B/C coaching comparison
+
+Each run writes a reproducible record to `data/experiments/`. See [`docs/OPERATIONS.md`](docs/OPERATIONS.md#research-workflow).
 
 ## Database migrations
 

@@ -22,11 +22,22 @@ export function useLoad<T>(path: string | null) {
     }
   }, [path]);
 
+  /** Re-fetch without a loading state or clearing data (for polling). */
+  const refresh = useCallback(async () => {
+    if (path === null) return;
+    try {
+      setData(await api<T>(path));
+      setError(null);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }, [path]);
+
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  return { data, error, loading, reload, setData };
+  return { data, error, loading, reload, refresh, setData };
 }
 
 let taxonomyCache: Taxonomy | null = null;
@@ -43,4 +54,13 @@ export function useTaxonomy(): Taxonomy | null {
       .catch(() => {});
   }, []);
   return tax;
+}
+
+/** Call `fn` every `ms` while `active` (e.g. to follow a running analysis). */
+export function usePoll(fn: () => void, ms: number, active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(fn, ms);
+    return () => clearInterval(t);
+  }, [fn, ms, active]);
 }

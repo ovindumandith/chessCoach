@@ -12,7 +12,7 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 | 6 | LLM adapter, evidence retrieval, structured lessons, validation, fallback | ✅ |
 | 7 | Exercises and attempt tracking | ✅ |
 | 8 | Frontend, authentication (JWT + roles), authorization hardening | ✅ |
-| 9 | Research evaluation, end-to-end tests, deployment docs | ⏳ |
+| 9 | Research evaluation, end-to-end tests, deployment docs | ✅ |
 
 ## Phase 1 — Foundation
 
@@ -275,8 +275,82 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
 - There are no refresh tokens: users sign in again after 60 minutes, and tokens can't be revoked before they expire (deactivating a user blocks them on the next request).
 - Admin user management has an API but no screen yet.
 
-## Phase 9 — Research evaluation, end-to-end tests, deployment (next)
+## Phase 9 — Research evaluation, end-to-end tests, operations
 
-- Evaluation module: baselines A (engine only), B (rule-based) and C (LLM with profile) on the same evidence. Classifier precision, recall and macro-F1 against coach-reviewed labels. Predictive validity of cutoff profiles. Experiment configs and versions recorded.
-- Browser end-to-end tests (Playwright) of the core coach and student workflow.
-- Backup, restore and data-deletion procedures, and deployment documentation.
+**Data deletion** (`privacy.py`; `DELETE /students/{id}?confirm=<name>` for the coach; `python -m chesscoach.privacy delete-student`)
+- Deletes in explicit dependency order, because evidence foreign keys deliberately don't cascade.
+- PGN files are kept while another student's games still use them.
+- The student's own login is anonymized and deactivated. Audit events hold no names.
+- Verified on SQLite and on PostgreSQL: zero orphaned analysis runs, and a wrong confirmation name is refused.
+
+**Evaluation** (`evaluation/`, `python -m chesscoach.evaluation`; read-only against live tables)
+- **Benchmark:**
+  - a *blind*, stratified annotation sheet: flagged and unflagged moves, engine facts only, no classifier labels
+  - scoring of the classifier's *original* labels (before review): per-label precision, recall, F1 and macro-F1, plus critical-move detection
+  - Labels that are only ever predicted count as F1 = 0. A unit test caught an early version that silently dropped them, which flattered the classifier.
+- **Review precision:** confirmed ÷ reviewed per label, explicitly labelled precision-only and non-blind.
+- **Predictive validity:**
+  - pre-cutoff profiles are built in memory (no snapshots written) and their top-k actionable skills are compared with skills that occur in post-cutoff games
+  - compared against a non-personalized population baseline, P@k per student and on average
+- **Coaching comparison:**
+  - per student: A (engine-only critical moves), B (template), C (validated LLM lesson, only if enabled)
+  - shuffled under neutral names, with a CSV rating sheet (five criteria, 1–5) and a separate key file
+  - `coaching-score` joins the ratings with the key
+- **Records:** every run writes JSON with the code revision (git, or `CHESSCOACH_REVISION` baked into the image), every component version, non-secret settings, seed, config and dataset IDs, to `EXPERIMENTS_DIR`.
+- Run inside Docker on real data. `predictive`, on the four trap games with a cutoff between game 2 and game 3, predicted mating patterns and threat prevention, and both recurred. With one student, the baseline is identical, so this is a plumbing check, not evidence.
+
+**Browser end-to-end** (`frontend/e2e/`, Playwright 1.63, system Chrome)
+- One continuous journey: the admin creates a coach through the API. In the UI, the coach:
+  - creates a student and imports a PGN
+  - runs the real Stockfish analysis
+  - inspects the game viewer
+  - confirms a finding on the board
+  - rebuilds the profile and generates a lesson
+  - creates the student's login
+
+  The student then signs in, takes a hint, makes an illegal drag (rejected, nothing recorded), solves Qxf7# **by dragging the queen**, sees the solution, and can't reach coach pages.
+- Passed 3 of 3 runs (19–23 s).
+
+**Operations** (`docs/OPERATIONS.md`): first start, production checklist, backup, restore, deletion, upgrades and reclassification, LLM enablement, troubleshooting, and the research workflow.
+- The backup and restore round trip was **verified**: the restored copy matched the live database exactly (row counts and migration head), and the uploads archive contained all files.
+
+### Post-MVP additions
+
+- **Live engine in the browser:**
+  - Stockfish 19 lite (stockfish.js, single-threaded WASM, GPLv3; the licence and source are linked in the UI) runs in a Web Worker in the game viewer.
+  - It shows MultiPV 3 with a depth counter and an evaluation bar from the student's side.
+  - **Explore mode** lets you drag pieces to try lines, with "back to the game" to return.
+  - It is exploration only. Nothing it computes is stored, and profiles keep using the pinned, fixed-depth server analysis (Stockfish 18).
+  - Stale-search safety: a new position waits for the previous search's `bestmove`, so old lines never appear against a new position.
+- **"You made the same mistake here before":**
+  - `GET /games/{id}/findings` links each finding to the same mistake in the student's other games.
+  - Same mistake = same skill and subskill **and** the same motif kind (missing your own mate ≠ allowing the opponent's). Unexplained errors are never matched, and rejected findings never count.
+  - Links are listed oldest first and marked earlier or later. The viewer flags repeated moves in the move list, and links open the exact move (`?ply=`).
+- **Analysis status:**
+  - `GET /games/{id}/analysis-status` returns not_requested, queued (with jobs ahead), running, deepening, analyzed or failed.
+  - The games list shows each game's status, updates live, and has **Analyze all**.
+  - The viewer never polls for a 404.
+- **Game page redesign:**
+  - The original uploaded game (parsed from the stored PGN) is on the left: board with last-move highlight, players with a "you" tag, navigation buttons and a full two-column move list. It is viewable even before analysis.
+  - The analysis of the current move is on the right, in plain language. The verdict uses the classifier's thresholds (Best / Good / Inaccuracy / Mistake / Blunder / Missed a forced mate). The panel describes the position before and after, the better move (green arrow), what the move allowed (orange arrow), and same-mistake links. Opponent moves show the resulting position and your best reply.
+  - Key-moment chips, a clickable winning-chances graph, and a "How to read this" legend.
+  - **Keyboard:** ↓/→ next, ↑/← back, Home/End, N/P next and previous mistake, Esc stops exploring.
+  - Two bugs found by the browser tests and fixed: fast key presses lost steps (stale position, fixed with a ref), and board inputs are now memoized with a shorter animation, so stepping feels snappy and drags aren't disturbed.
+- **Annotations for both sides** (`annotation/`, `GET /games/{id}/annotations`):
+  - Every move gets a verdict from the classifier's thresholds.
+  - **Opponent moves are graded too, with no extra engine work.** Their before and after evaluations come from the analysis around the student's moves. These grades are display-only and never enter the profile.
+- **Plain-language "why"** (`annotation/explain.py`), worked out on the board:
+  - forced mates
+  - material when the engine's line is played out, netted like a player would say it ("a knight for a pawn", "the exchange")
+  - verified forks and undefended pieces in the better move or the reply
+  - otherwise an honest "positional" statement with the engine's margin
+- **Standard notation everywhere:** + = White better, − = Black better, #3 / #−3 for mates. The words name the student's colour ("you (Black) were winning").
+- Browser tests cover both: the engine finds **#1 Qxf7#**, explore mode handles a finished game, and the earlier game opens at the linked move. The e2e harness signs the admin in once per run, because the 10-per-15-minutes login throttle tripped on repeated runs.
+
+### Known limitations (MVP)
+
+- Statistical claims need a real cohort: the spec's 10–30 students, coach-annotated gold labels, and blinded ratings. The tooling exists, the data doesn't yet.
+- Exercises are single-move, there is no "avoid the blunder" type, and there are no unseen-position puzzles. A themed puzzle bank (for example the CC0 Lichess database) is the natural next step for pre/post measurement.
+- Detectors don't yet cover pins, skewers, discovered attacks, or attacks on a pawn plus a piece.
+- Rate limits are per process. There are no refresh tokens, and no admin screen for user management.
+- Not yet run against a live LLM, because no credentials are configured. The validator and fallback are tested with mock providers.

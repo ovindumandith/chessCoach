@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Response, status
 
 from chesscoach.analysis import service
+from chesscoach.annotation import service as annotation_service
 from chesscoach.api.deps import CurrentUser, DbSession, rate_limited
 from chesscoach.api.schemas import AnalysisJobOut, AnalyzeRequest, GameAnalysisOut, MoveAnalysisOut
 
@@ -43,3 +44,15 @@ def get_game_analysis(game_id: uuid.UUID, db: DbSession, user: CurrentUser) -> G
         critical=AnalysisJobOut.model_validate(result.critical) if result.critical else None,
         critical_moves=[MoveAnalysisOut.model_validate(m) for m in result.critical_moves],
     )
+
+
+@router.get("/games/{game_id}/analysis-status")
+def get_analysis_status(game_id: uuid.UUID, db: DbSession, user: CurrentUser) -> dict:
+    """queued / running / deepening / analyzed / failed / not_requested, with queue position."""
+    return service.analysis_status(db, user, game_id)
+
+
+@router.get("/games/{game_id}/annotations")
+def get_annotations(game_id: uuid.UUID, db: DbSession, user: CurrentUser) -> dict:
+    """Every move of both sides graded, with plain-language reasons (+ = White better)."""
+    return annotation_service.game_annotations(db, user, game_id)

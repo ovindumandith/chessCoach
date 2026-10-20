@@ -2,14 +2,23 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api, errorText, patch, post, type Game, type ImportReport, type Page } from "../../api";
+import { AnalysisBadge, IN_PROGRESS } from "../../components/AnalysisBadge";
 import { ActionButton, Badge, Empty, ErrorBox, Loading } from "../../components/ui";
-import { useLoad } from "../../hooks";
+import { useLoad, usePoll } from "../../hooks";
 
 export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: boolean }) {
-  const { data, error, loading, reload } = useLoad<Page<Game>>(`/students/${studentId}/games?limit=200`);
+  const { data, error, loading, reload, refresh } = useLoad<Page<Game>>(`/students/${studentId}/games?limit=200`);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  const games = data?.items ?? [];
+  const inProgress = games.filter((g) => g.analysis_status && IN_PROGRESS.includes(g.analysis_status)).length;
+  const toAnalyze = games.filter(
+    (g) => g.student_color && (g.analysis_status === "not_requested" || g.analysis_status === "failed"),
+  );
+  // Follow running analyses live; stop polling when nothing is in progress.
+  usePoll(refresh, 4000, inProgress > 0);
 
   async function upload(file: File) {
     setUploading(true);
@@ -24,6 +33,11 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
     } finally {
       setUploading(false);
     }
+  }
+
+  async function analyze(gameIds: string[]) {
+    for (const id of gameIds) await post(`/games/${id}/analyze`);
+    await refresh();
   }
 
   return (
@@ -56,10 +70,26 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
           )}
         </div>
       )}
+      {canEdit && games.length > 0 && (
+        <div className="row">
+          <ActionButton
+            className="primary"
+            disabled={toAnalyze.length === 0}
+            onClick={() => analyze(toAnalyze.map((g) => g.id))}
+          >
+            Analyze all ({toAnalyze.length})
+          </ActionButton>
+          {inProgress > 0 && (
+            <span className="muted small">
+              Stockfish is working on {inProgress} game{inProgress > 1 ? "s" : ""}; this list updates by itself.
+            </span>
+          )}
+        </div>
+      )}
       {loading && <Loading />}
       <ErrorBox error={error} />
-      {data && data.items.length === 0 && <Empty>No games yet.</Empty>}
-      {data && data.items.length > 0 && (
+      {data && games.length === 0 && <Empty>No games yet.</Empty>}
+      {games.length > 0 && (
         <table>
           <thead>
             <tr>
@@ -68,11 +98,12 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
               <th>Black</th>
               <th>Result</th>
               <th>Student plays</th>
+              <th>Analysis</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {data.items.map((g) => (
+            {games.map((g) => (
               <tr key={g.id}>
                 <td>{g.played_at ?? "–"}</td>
                 <td>{g.white_name}</td>
@@ -100,11 +131,16 @@ export function GamesTab({ studentId, canEdit }: { studentId: string; canEdit: b
                     <Badge kind="warn">unconfirmed</Badge>
                   )}
                 </td>
+                <td>{g.student_color ? <AnalysisBadge state={g.analysis_status} /> : "–"}</td>
                 <td className="row">
                   {g.student_color && <Link to={`/games/${g.id}`}>View</Link>}
-                  {canEdit && g.student_color && (
-                    <ActionButton onClick={() => post(`/games/${g.id}/analyze`)}>Analyze</ActionButton>
-                  )}
+                  {canEdit &&
+                    g.student_color &&
+                    (g.analysis_status === "not_requested" || g.analysis_status === "failed") && (
+                      <ActionButton onClick={() => analyze([g.id])}>
+                        {g.analysis_status === "failed" ? "Retry" : "Analyze"}
+                      </ActionButton>
+                    )}
                 </td>
               </tr>
             ))}

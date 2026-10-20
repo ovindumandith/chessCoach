@@ -200,3 +200,40 @@ def test_other_coach_cannot_queue_or_read(client, db, imported, make_user, setti
     assert client.post(f"{API}/games/{games[0]}/analyze", headers=other).status_code == 403
     assert client.get(f"{API}/analysis-jobs/{job['id']}", headers=other).status_code == 403
     assert client.get(f"{API}/games/{games[0]}/analysis", headers=other).status_code == 403
+
+
+def test_status_endpoint_tracks_the_whole_lifecycle(client, db, settings):
+    student = client.post(
+        f"{API}/students", json={"display_name": "Status", "aliases": ["Ovindu"]}
+    ).json()
+    report = _upload(client, student["id"], MISSED_MATE_PGN, "m.pgn")
+    game_id = report["games"][0]["game_id"]
+    status = lambda: client.get(f"{API}/games/{game_id}/analysis-status").json()  # noqa: E731
+    games = lambda: client.get(f"{API}/students/{student['id']}/games").json()["items"]  # noqa: E731
+
+    assert status()["state"] == "not_requested" and games()[0]["analysis_status"] == "not_requested"
+    client.post(f"{API}/games/{game_id}/analyze")
+    s = status()
+    assert s["state"] == "queued" and s["jobs_ahead"] == 0 and s["results_available"] is False
+    assert s["moves_to_analyze"] == 4
+
+    run_once(db, FakeAnalyzer(), settings, "w")  # baseline done, critical pass queued
+    s = status()
+    assert s["state"] == "deepening" and s["results_available"] is True
+    assert client.get(f"{API}/games/{game_id}/analysis").status_code == 200
+
+    run_once(db, FakeAnalyzer(), settings, "w")  # critical pass done
+    assert status()["state"] == "analyzed" and games()[0]["analysis_status"] == "analyzed"
+
+
+def test_status_reports_failures_and_queue_position(client, db, imported, settings):
+    _, games = imported
+    first = client.post(f"{API}/games/{games[0]}/analyze").json()
+    client.post(f"{API}/games/{games[1]}/analyze")
+    assert client.get(f"{API}/games/{games[1]}/analysis-status").json()["jobs_ahead"] == 1
+    broken = FakeAnalyzer(fail_always=True)
+    for _ in range(settings.analysis_max_attempts):
+        run_once(db, broken, settings, "w")
+    s = client.get(f"{API}/games/{games[0]}/analysis-status").json()
+    assert s["state"] == "failed" and "simulated engine failure" in s["error_message"]
+    assert s["baseline_job_id"] == first["id"]

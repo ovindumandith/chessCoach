@@ -1,6 +1,7 @@
 import { useState } from "react";
 
-import { formatEval, patch, skillLabel, type Page, type Weakness } from "../../api";
+import { patch, skillLabel, type Page, type Weakness } from "../../api";
+import { sideToMove, studentEvalText } from "../../verdict";
 import { Board } from "../../components/Board";
 import { ActionButton, Badge, Empty, ErrorBox, Loading, pct } from "../../components/ui";
 import { useLoad, useTaxonomy } from "../../hooks";
@@ -71,7 +72,8 @@ function WeaknessCard({
       <Board fen={e.fen_before} size={240} bestMove={e.best_move_uci} playedMove={e.uci_move} />
       <p className="small">
         {w.game_white} – {w.game_black} {w.game_played_at ?? ""}, move {moveNo}: played <b>{e.san_move}</b> (
-        {formatEval(e.eval_before_cp, e.eval_before_mate)} → {formatEval(e.eval_after_cp, e.eval_after_mate, true)})
+        {studentEvalText(e.eval_before_cp, e.eval_before_mate, sideToMove(e.fen_before))} →{" "}
+        {studentEvalText(e.eval_after_cp, e.eval_after_mate, sideToMove(e.fen_before), true)})
         {e.best_line_san[0] && e.best_line_san[0] !== e.san_move && (
           <>
             , engine: <b>{e.best_line_san.slice(0, 4).join(" ")}</b>

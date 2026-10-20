@@ -25,7 +25,8 @@ def _example(p) -> LessonExample:
         engine_best_move_uci=p.engine_best_move_uci if best else None,
         explanation=(
             f"Move {p.move_number} as {side}: you played {p.played_move_san} "
-            f"({p.eval_before} before, {p.eval_after} after).{best}{reply}"
+            f"({p.eval_before} before, {p.eval_after} after, measured from your side as "
+            f"{side}: plus means you are better).{best}{reply}"
         ),
     )
 

@@ -1,0 +1,29 @@
+[Event "Repeat Club"]
+[Site "?"]
+[Date "2024.01.10"]
+[Round "1"]
+[White "Repeat Student"]
+[Black "Alice"]
+[Result "*"]
+
+1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qe2 Bc5 5. Nf3 d6 *
+
+[Event "Repeat Club"]
+[Site "?"]
+[Date "2024.02.10"]
+[Round "2"]
+[White "Repeat Student"]
+[Black "Bob"]
+[Result "1-0"]
+
+1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0
+
+[Event "Repeat Club"]
+[Site "?"]
+[Date "2024.03.10"]
+[Round "3"]
+[White "Repeat Student"]
+[Black "Carol"]
+[Result "*"]
+
+1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qe2 Bc5 5. Nf3 d6 *
