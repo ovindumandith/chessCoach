@@ -345,3 +345,21 @@ button.linklike { background: none; border: none; padding: 0; color: var(--accen
 /* training */
 .recommendation .card-head { margin-bottom: var(--s3); }
 .training > h2 { margin-top: var(--s5); }
+
+/* puzzles */
+.puzzle-steps { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; margin: var(--s3) 0 var(--s4); }
+.puzzle-step {
+  display: inline-flex; gap: var(--s2); align-items: baseline; padding: 6px 12px; border-radius: 999px;
+}
+.puzzle-step .step-n { font-weight: 700; }
+.puzzle-step .step-rating { font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
+.puzzle-step.solved { border-color: var(--ok-text); color: var(--ok-text); }
+.puzzle-step.failed { border-color: var(--c-blunder); color: var(--c-blunder); }
+.puzzle-step.current { outline: 2px solid var(--accent); outline-offset: 1px; }
+.puzzle-rating { margin-left: auto; }
+.puzzle-workspace { display: grid; grid-template-columns: auto minmax(280px, 1fr); gap: var(--s5); align-items: start; }
+@media (max-width: 900px) { .puzzle-workspace { grid-template-columns: 1fr; } }
+.puzzle-panel h2 { margin-top: 0; }
+.feedback { font-weight: 600; }
+.feedback.right { color: var(--ok-text); }
+.feedback.wrong { color: var(--c-blunder); }

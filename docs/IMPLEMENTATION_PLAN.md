@@ -383,10 +383,38 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
   - **Coach UI:** top navigation has Students and Mistakes across students. The student list shows games, games added by the student, open mistakes (not yet acknowledged, out of the total) and whether there is a login. Per student: Games, Mistakes, Profile, Recommendations, Progress and Account, all read-only except Account.
   - Tests act as the student with `client.as_student(student_id)` and label as an admin with `client.as_admin` (`tests/conftest.py`). The e2e specs set up a coach, student and login through `e2e/helpers.ts`.
 
+- **Lichess puzzles per mistake** (`puzzles/`, migration `95b25e5ac111`):
+  - **Source:** the Hugging Face dataset `Lichess/chess-puzzles`. It's the Lichess puzzle database under CC0, about 6.16M puzzles in three Parquet files totalling 885 MB, updated monthly. The CSV export from database.lichess.org works too. `FEN` is the position before the opponent's move. The first UCI move in `Moves` is that opponent move, and the solution starts at the second. This was checked against the Lichess documentation and the data.
+  - **Import:** `python -m chesscoach.puzzles.load --hf` (or `.parquet`/`.csv` files). The current dataset revision is recorded on every puzzle (e.g. `hf:Lichess/chess-puzzles@461725966ea4`). Downloads are cached and size-checked, and re-runs skip known puzzles. What it keeps:
+    - reliable ratings only: `RatingDeviation` ≤ 90, `NbPlays` ≥ 100, `Popularity` ≥ 50
+    - only puzzles with at least one theme a skill is trained with
+    - at most 150 per (theme, 100-point rating band), so every theme has puzzles at every level instead of millions of mid-rated ones
+    - only lines that are fully legal in python-chess, with an even number of moves (opponent first, player last)
+
+    One file (2.05M puzzles) gave 71,632 puzzles in about 2 minutes, with 0 invalid lines and every mapped theme covered from 600 to 2500.
+  - **Skill → theme mapping:** `config/puzzle_themes.yaml` (`puzzle-themes-v1`), validated against the taxonomy and the Lichess theme keys. Examples: forks → `fork`, mating patterns → `mateIn1`–`mateIn3`/`backRankMate`/`smotheredMate`, rook endgames → `rookEndgame`. Unexplained mistakes use the move's game phase. Positional skills that tactical puzzles cannot train get an honest 409, not unrelated puzzles.
+  - **Four puzzles per mistake, harder each time** (`selection.py`, `puzzle-select-v1`):
+    - targets are the student's puzzle rating for that skill −200, −75, +75 and +200
+    - for each target, the chosen puzzle is the closest one whose `Rating ± RatingDeviation` covers the target (most popular on ties), never with `RatingDeviation` > 110
+    - each puzzle is rated strictly above the previous one
+    - puzzles are never repeated for a student
+    - an unfinished set for the same mistake is reused
+  - **Puzzle rating per skill** (`student_puzzle_ratings`): starts at the student's rating estimate, or 1500. Each puzzle is decided once, on the first wrong move, a reveal, or solving it. The rating then moves by a Glicko-style update in which the puzzle's `RatingDeviation` damps the change (g(RD)), with K = 64 for the first 8 puzzles and 32 after. So the next set for a skill starts higher after successes and lower after failures.
+  - **Solving:** Lichess rules. The opponent's first move is shown as already played, and every player move must match the solution, except that any mating move also solves. The first wrong move decides the puzzle as failed, but the student can keep trying. Illegal moves are refused and never counted. The solution, a step-through and the Lichess link appear only once the puzzle is finished.
+  - **Roles:** only the student creates and solves sets (`require_own_student_record`). Coaches can view them. Assignments and puzzle ratings are deleted with the student. Puzzle results never feed the weakness profile.
+  - **UI:**
+    - each mistake in My mistakes has a "Puzzles like this" button, or "Puzzles N/4 solved" once a set exists
+    - the Exercises tab has "4 Lichess puzzles for this" next to the AI recommendation, plus a puzzle-set table
+    - the set page (`/puzzles/:setId`) shows the four rising ratings, the board, the student's puzzle rating for the skill, and "Next puzzle (harder)"
+  - **Fixed along the way:**
+    - **Column too short:** `selection_version` needed 33 characters but the column allowed 32. SQLite ignored it, PostgreSQL refused it (HTTP 500). The column was widened, and a test now checks stored lengths.
+    - **502 after rebuilds:** nginx resolved the backend once at startup, so recreating the backend alone gave 502s until nginx restarted. It now re-resolves through Docker's DNS.
+    - **Solution skipped:** the set page jumped to the next puzzle before showing the solution.
+
 ### Known limitations (MVP)
 
 - Statistical claims need a real cohort: the spec's 10–30 students, coach-annotated gold labels, and blinded ratings. The tooling exists, the data doesn't yet.
-- Exercises are single-move, there is no "avoid the blunder" type, and there are no unseen-position puzzles. A themed puzzle bank (for example the CC0 Lichess database) is the natural next step for pre/post measurement.
+- Exercises from the student's own games are single-move, and there is no "avoid the blunder" type. Unseen-position practice now comes from the Lichess puzzles (see above). Using them for pre/post measurement still needs a fixed, held-out puzzle sample.
 - Detectors don't yet cover pins, skewers, discovered attacks, or attacks on a pawn plus a piece.
 - Rate limits are per process. There are no refresh tokens, and no admin screen for user management.
 - Not yet run against a live LLM, because no credentials are configured. The validator and fallback are tested with mock providers.

@@ -1,0 +1,50 @@
+# Which Lichess puzzle themes train which skill from config/skill_taxonomy.yaml.
+#
+# Theme keys are the Lichess ones (lichess-org/lila translation/source/puzzleTheme.xml).
+# A puzzle matches a skill when it has ANY of the listed themes. Skills that tactical
+# puzzles cannot train (most positional skills) are left out on purpose: they get no
+# puzzles rather than unrelated ones. `unclassified` mistakes (no verified cause) use the
+# game phase of the move instead, from `phase_themes`.
+#
+# Bump `version` on any change: puzzle sets store the version they were selected under.
+version: puzzle-themes-v1
+
+skills:
+  tactical_awareness:
+    forks: [fork]
+    pins: [pin]
+    skewers: [skewer]
+    discovered_attacks: [discoveredAttack, discoveredCheck]
+    hanging_pieces: [hangingPiece, trappedPiece]
+    mating_patterns: [mateIn1, mateIn2, mateIn3, backRankMate, smotheredMate]
+  calculation:
+    forcing_variations: [sacrifice, deflection, attraction]
+    intermediate_moves: [intermezzo]
+    defensive_resources: [defensiveMove]
+    variation_accuracy: [long, veryLong]
+  positional_play:
+    king_safety: [exposedKing, kingsideAttack]
+  opening_knowledge:
+    opening_traps: [opening]
+  endgame_technique:
+    king_activity: [pawnEndgame]
+    pawn_endgames: [pawnEndgame]
+    rook_endgames: [rookEndgame]
+    general_endgames: [bishopEndgame, knightEndgame, queenEndgame, queenRookEndgame]
+    conversion: [promotion, advancedPawn]
+    defensive_holds: [equality]
+  defensive_skills:
+    finding_resources: [defensiveMove, equality]
+    threat_prevention: [defensiveMove]
+    simplifying_under_pressure: [equality]
+  winning_position_conversion:
+    preserving_advantage: [crushing]
+    practical_continuations: [advantage]
+    reducing_counterplay: [quietMove]
+  practical_play:
+    time_management: [oneMove, short]
+
+phase_themes:
+  opening: [opening]
+  middlegame: [middlegame]
+  endgame: [endgame]

@@ -47,6 +47,7 @@ src/chesscoach/
   profiling/    aggregation into versioned profiles (Phase 5)
   coaching/     provider adapters, retrieval, prompts, validation (Phase 6)
   exercises/    selection and attempts (Phase 7)
+  puzzles/      Lichess puzzle import, rising-difficulty sets per mistake, puzzle ratings
   evaluation/   baselines and metrics (Phase 9)
   annotation/   display verdicts and board-derived reasons for both sides
   mistakes.py   a student's mistakes per game, acknowledgements, "flagged again"

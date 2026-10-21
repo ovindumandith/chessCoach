@@ -351,3 +351,43 @@ export function skillLabel(tax: Taxonomy | null, skill: string, sub: string | nu
 export function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+
+// ----------------------------------------------------------------------------- puzzles
+/** One Lichess puzzle given to the student (solution only once finished). */
+export interface PuzzleView {
+  id: string;
+  set_id: string;
+  position: number;
+  skill_code: string;
+  subskill_code: string | null;
+  theme: string;
+  rating: number;
+  rating_deviation: number;
+  themes: string[];
+  fen: string;
+  last_move: string;
+  student_side: "white" | "black";
+  status: "open" | "completed" | "revealed";
+  result: "solved" | "failed" | null;
+  wrong_moves: number;
+  moves_left: number;
+  solution: string[] | null;
+  start_fen: string | null;
+  lichess_url: string | null;
+}
+export interface PuzzleSet {
+  set_id: string;
+  student_id: string;
+  skill_code: string;
+  subskill_code: string | null;
+  source: { game_id: string; ply: number; move_number: number; san: string | null; opponent: string; played_at: string | null } | null;
+  created_at: string;
+  rating_before: number;
+  rating_now: number | null;
+  solved: number;
+  puzzles: PuzzleView[];
+}
+export interface PuzzleSetList {
+  library_size: number;
+  sets: PuzzleSet[];
+}

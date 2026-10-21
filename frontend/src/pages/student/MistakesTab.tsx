@@ -1,7 +1,17 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
-import { del, put, skillLabel, type GameMistakes, type Mistake, type MistakesPage } from "../../api";
+import {
+  del,
+  post,
+  put,
+  skillLabel,
+  type GameMistakes,
+  type Mistake,
+  type MistakesPage,
+  type PuzzleSet,
+  type PuzzleSetList,
+} from "../../api";
 import { ActionButton, Badge, Empty, ErrorBox, Loading } from "../../components/ui";
 import { useLoad, useTaxonomy } from "../../hooks";
 import { fmtWhite } from "../../verdict";
@@ -20,6 +30,12 @@ export function MistakesTab({ studentId, viewer }: { studentId: string; viewer: 
   );
   const tax = useTaxonomy();
   const isStudent = viewer === "student";
+  const sets = useLoad<PuzzleSetList>(`/students/${studentId}/puzzle-sets`);
+  // The latest puzzle set for each mistake (game, ply).
+  const puzzles = new Map<string, PuzzleSet>();
+  for (const s of [...(sets.data?.sets ?? [])].reverse()) {
+    if (s.source) puzzles.set(`${s.source.game_id}/${s.source.ply}`, s);
+  }
 
   return (
     <section>
@@ -42,7 +58,7 @@ export function MistakesTab({ studentId, viewer }: { studentId: string; viewer: 
         </Empty>
       )}
       {data?.games.map((g) => (
-        <GameCard key={g.game_id} g={g} tax={tax} canAcknowledge={isStudent} onChange={refresh} />
+        <GameCard key={g.game_id} g={g} tax={tax} canAcknowledge={isStudent} onChange={refresh} puzzles={puzzles} />
       ))}
       {data && data.total_games > PAGE && (
         <div className="row">
@@ -66,11 +82,13 @@ function GameCard({
   tax,
   canAcknowledge,
   onChange,
+  puzzles,
 }: {
   g: GameMistakes;
   tax: ReturnType<typeof useTaxonomy>;
   canAcknowledge: boolean;
   onChange: () => Promise<void>;
+  puzzles: Map<string, PuzzleSet>;
 }) {
   const n = g.mistakes.length;
   return (
@@ -96,7 +114,15 @@ function GameCard({
       {n > 0 && (
         <ol className="mistake-list">
           {g.mistakes.map((m) => (
-            <MistakeRow key={m.ply} gameId={g.game_id} m={m} tax={tax} canAcknowledge={canAcknowledge} onChange={onChange} />
+            <MistakeRow
+              key={m.ply}
+              gameId={g.game_id}
+              m={m}
+              tax={tax}
+              canAcknowledge={canAcknowledge}
+              onChange={onChange}
+              puzzleSet={puzzles.get(`${g.game_id}/${m.ply}`)}
+            />
           ))}
         </ol>
       )}
@@ -110,12 +136,14 @@ function MistakeRow({
   tax,
   canAcknowledge,
   onChange,
+  puzzleSet,
 }: {
   gameId: string;
   m: Mistake;
   tax: ReturnType<typeof useTaxonomy>;
   canAcknowledge: boolean;
   onChange: () => Promise<void>;
+  puzzleSet?: PuzzleSet;
 }) {
   const url = `/games/${gameId}/mistakes/${m.ply}/acknowledgement`;
   const kinds = m.types.filter((t) => t.skill_code !== "unclassified");
@@ -186,6 +214,7 @@ function MistakeRow({
         )}
       </div>
       <div className="mistake-ack">
+        <PuzzleControl gameId={gameId} ply={m.ply} set={puzzleSet} canCreate={canAcknowledge} />
         {m.acknowledged_at ? (
           <>
             <Badge kind="ok">acknowledged {m.acknowledged_at.slice(0, 10)}</Badge>
@@ -202,5 +231,39 @@ function MistakeRow({
         )}
       </div>
     </li>
+  );
+}
+
+/** "Puzzles like this" for one mistake: four Lichess puzzles of its kind, getting harder. */
+function PuzzleControl({
+  gameId,
+  ply,
+  set,
+  canCreate,
+}: {
+  gameId: string;
+  ply: number;
+  set?: PuzzleSet;
+  canCreate: boolean;
+}) {
+  const navigate = useNavigate();
+  if (set) {
+    return (
+      <Link to={`/puzzles/${set.set_id}`} className="small" data-testid="puzzle-progress">
+        Puzzles {set.solved}/{set.puzzles.length} solved
+      </Link>
+    );
+  }
+  if (!canCreate) return null;
+  return (
+    <ActionButton
+      className="primary"
+      onClick={async () => {
+        const created = await post<PuzzleSet>(`/games/${gameId}/mistakes/${ply}/puzzles`);
+        navigate(`/puzzles/${created.set_id}`);
+      }}
+    >
+      Puzzles like this
+    </ActionButton>
   );
 }

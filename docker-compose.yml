@@ -8,6 +8,15 @@ x-app-env: &app-env
   EXPERIMENTS_DIR: /data/experiments
   PGN_MAX_UPLOAD_MB: ${PGN_MAX_UPLOAD_MB:-25}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  # LLM coaching: values come from .env (never committed). Off unless LLM_ENABLED=true.
+  LLM_ENABLED: ${LLM_ENABLED:-false}
+  LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_MODEL: ${LLM_MODEL:-claude-opus-5-5}
+  LLM_EFFORT: ${LLM_EFFORT:-medium}
+  LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
 
 services:
   db:

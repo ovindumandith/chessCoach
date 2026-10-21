@@ -26,6 +26,7 @@ Read `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md` before you change 
 - `profiling/` aggregates observations into versioned snapshots. It never treats unreviewed candidates as ground truth.
 - `coaching/` retrieves evidence, calls the LLM and validates output. Only this module talks to the LLM.
 - `exercises/` handles exercise selection and attempts.
+- `puzzles/` imports Lichess puzzles (CC0) and picks sets of rising rating per mistake; it tracks a puzzle rating per skill. Solutions come from the dataset, and legality comes from python-chess. It never calls the engine or the LLM. Puzzle results never feed the weakness profile.
 - `mistakes.py` groups a student's findings into mistakes per game and stores the student's acknowledgements. It's display and monitoring only, and never changes findings or profiles.
 - `cohort.py` is the coach's read-only overview of mistakes across their students.
 - `annotation/` turns stored analysis into display annotations for both sides (verdicts and board-derived reasons). It's display-only: opponent grades never feed profiles.

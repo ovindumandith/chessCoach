@@ -107,3 +107,16 @@ class ExerciseStatus(StrEnum):
     SOLVED = "solved"
     FAILED = "failed"  # attempts exhausted; solution revealed
     REVEALED = "revealed"  # student gave up; solution revealed
+
+
+class PuzzleStatus(StrEnum):
+    OPEN = "open"
+    COMPLETED = "completed"  # the full solution line was played
+    REVEALED = "revealed"  # the student gave up and saw the solution
+
+
+class PuzzleResult(StrEnum):
+    """The first decision on a puzzle, which is what the puzzle rating counts (as on Lichess)."""
+
+    SOLVED = "solved"
+    FAILED = "failed"

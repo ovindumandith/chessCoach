@@ -34,6 +34,8 @@ from chesscoach.db.enums import (
     OpportunityOutcome,
     PlanStatus,
     ProfileState,
+    PuzzleResult,
+    PuzzleStatus,
     ReviewStatus,
     UserRole,
     ValidationStatus,
@@ -490,6 +492,104 @@ class ExerciseAttempt(Base):
     hints_used: Mapped[int] = mapped_column(Integer, default=0)
     time_taken_ms: Mapped[int | None] = mapped_column(Integer)
     completed_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
+# --------------------------------------------------------------------------- puzzles
+
+
+class Puzzle(Base):
+    """A puzzle from the Lichess puzzle database (CC0). Imported, never edited.
+
+    `fen` is the position BEFORE the opponent's move; `moves` (UCI, space separated) starts
+    with that opponent move, and the student's solution begins with the second move.
+    """
+
+    __tablename__ = "puzzles"
+
+    id: Mapped[uuid.UUID] = _pk()
+    lichess_id: Mapped[str] = mapped_column(String(16), unique=True)
+    fen: Mapped[str] = mapped_column(String(100))
+    moves: Mapped[str] = mapped_column(Text)
+    rating: Mapped[int] = mapped_column(Integer, index=True)
+    rating_deviation: Mapped[int] = mapped_column(Integer)
+    popularity: Mapped[int] = mapped_column(Integer)
+    nb_plays: Mapped[int] = mapped_column(Integer)
+    themes: Mapped[list[Any]] = mapped_column(default=list)
+    opening_tags: Mapped[list[Any]] = mapped_column(default=list)
+    game_ref: Mapped[str | None] = mapped_column(String(64))  # Lichess game id (and ply)
+    source: Mapped[str] = mapped_column(String(128))  # dataset and revision it came from
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class PuzzleTheme(Base):
+    """One row per (puzzle, theme), with the rating copied for fast "theme near rating" lookups."""
+
+    __tablename__ = "puzzle_themes"
+    __table_args__ = (Index("ix_puzzle_themes_theme_rating", "theme", "rating"),)
+
+    puzzle_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("puzzles.id", ondelete="CASCADE"), primary_key=True
+    )
+    theme: Mapped[str] = mapped_column(String(48), primary_key=True)
+    rating: Mapped[int] = mapped_column(Integer)
+
+
+class PuzzleAssignment(Base):
+    """One puzzle given to a student, as part of a set of (usually) four of rising rating."""
+
+    __tablename__ = "puzzle_assignments"
+    __table_args__ = (
+        UniqueConstraint("student_id", "puzzle_id", name="uq_puzzle_assignment_student_puzzle"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    puzzle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("puzzles.id"), index=True)
+    set_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    position: Mapped[int] = mapped_column(Integer)  # 1..n within the set, easiest first
+    skill_code: Mapped[str] = mapped_column(String(64), index=True)
+    subskill_code: Mapped[str | None] = mapped_column(String(64))
+    theme: Mapped[str] = mapped_column(String(48))  # the theme it was selected for
+    source_game_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("games.id", ondelete="SET NULL")
+    )
+    source_ply: Mapped[int | None] = mapped_column(Integer)  # the mistake it trains
+    target_rating: Mapped[int] = mapped_column(Integer)
+    student_rating_before: Mapped[float] = mapped_column(Float)
+    progress: Mapped[int] = mapped_column(Integer, default=1)  # plies of `moves` played
+    status: Mapped[PuzzleStatus] = mapped_column(
+        str_enum(PuzzleStatus, "puzzle_status"), default=PuzzleStatus.OPEN
+    )
+    result: Mapped[PuzzleResult | None] = mapped_column(str_enum(PuzzleResult, "puzzle_result"))
+    wrong_moves: Mapped[int] = mapped_column(Integer, default=0)
+    selection_version: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column()
+
+    puzzle: Mapped[Puzzle] = relationship()
+
+
+class StudentPuzzleRating(Base):
+    """The student's puzzle rating for one skill, updated after every decided puzzle."""
+
+    __tablename__ = "student_puzzle_ratings"
+    __table_args__ = (
+        UniqueConstraint(
+            "student_id", "skill_code", "subskill_code", name="uq_student_puzzle_rating_skill"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    skill_code: Mapped[str] = mapped_column(String(64))
+    subskill_code: Mapped[str | None] = mapped_column(String(64))
+    rating: Mapped[float] = mapped_column(Float)
+    puzzles_decided: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
 class AuditEvent(Base):

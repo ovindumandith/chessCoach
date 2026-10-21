@@ -34,10 +34,12 @@ from chesscoach.db.models import (
     MistakeAcknowledgement,
     MoveAnalysis,
     ProfileSnapshot,
+    PuzzleAssignment,
     SkillOpportunity,
     SourceFile,
     Student,
     StudentAccess,
+    StudentPuzzleRating,
     StudentSkillProfile,
     User,
     WeaknessObservation,
@@ -108,6 +110,14 @@ def delete_student(
     )
     run(
         "profile_snapshots", delete(ProfileSnapshot).where(ProfileSnapshot.student_id == student_id)
+    )
+    run(
+        "puzzle_assignments",
+        delete(PuzzleAssignment).where(PuzzleAssignment.student_id == student_id),
+    )
+    run(
+        "student_puzzle_ratings",
+        delete(StudentPuzzleRating).where(StudentPuzzleRating.student_id == student_id),
     )
     run(
         "mistake_acknowledgements",

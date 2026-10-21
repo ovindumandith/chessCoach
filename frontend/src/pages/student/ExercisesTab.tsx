@@ -1,7 +1,16 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
-import { post, skillLabel, type CoachingSession, type Exercise, type Lesson, type Page } from "../../api";
+import {
+  post,
+  skillLabel,
+  type CoachingSession,
+  type Exercise,
+  type Lesson,
+  type Page,
+  type PuzzleSet,
+  type PuzzleSetList,
+} from "../../api";
 import { LessonView } from "../../components/LessonView";
 import { ActionButton, Badge, Empty, ErrorBox, Loading } from "../../components/ui";
 import { useLoad, useTaxonomy } from "../../hooks";
@@ -25,6 +34,8 @@ function source(s: CoachingSession): string {
 export function ExercisesTab({ studentId }: { studentId: string }) {
   const sessions = useLoad<Page<CoachingSession>>(`/students/${studentId}/coaching/sessions`);
   const exercises = useLoad<Page<Exercise>>(`/students/${studentId}/exercises?limit=100`);
+  const puzzleSets = useLoad<PuzzleSetList>(`/students/${studentId}/puzzle-sets`);
+  const navigate = useNavigate();
   const tax = useTaxonomy();
   const [selected, setSelected] = useState<CoachingSession | null>(null);
   const current = selected ?? sessions.data?.items[0] ?? null;
@@ -73,7 +84,18 @@ export function ExercisesTab({ studentId }: { studentId: string }) {
               <ActionButton className="primary" onClick={practise}>
                 Practise this ({skillLabel(tax, goal?.skill_code ?? "", goal?.subskill_code ?? null)})
               </ActionButton>
-              <span className="muted small">Creates exercises from the positions where you made this mistake.</span>
+              <ActionButton
+                onClick={async () => {
+                  const created = await post<PuzzleSet>(`/students/${studentId}/puzzle-sets`, goal);
+                  navigate(`/puzzles/${created.set_id}`);
+                }}
+              >
+                4 Lichess puzzles for this
+              </ActionButton>
+              <span className="muted small">
+                Exercises come from the positions where you made this mistake; puzzles are new positions of the same
+                kind, each harder than the last.
+              </span>
             </div>
           </>
         )}
@@ -92,6 +114,47 @@ export function ExercisesTab({ studentId }: { studentId: string }) {
           </details>
         )}
       </div>
+
+      <h2>Your puzzles</h2>
+      {puzzleSets.data && puzzleSets.data.sets.length === 0 && (
+        <Empty>
+          {puzzleSets.data.library_size === 0
+            ? "The puzzle library has not been loaded yet."
+            : "No puzzles yet. Use “Puzzles like this” on a mistake, or “4 Lichess puzzles for this” above."}
+        </Empty>
+      )}
+      {puzzleSets.data && puzzleSets.data.sets.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>Skill</th>
+              <th>For</th>
+              <th>Ratings</th>
+              <th>Solved</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {puzzleSets.data.sets.map((ps) => (
+              <tr key={ps.set_id}>
+                <td>{skillLabel(tax, ps.skill_code, ps.subskill_code)}</td>
+                <td className="small">
+                  {ps.source ? `${ps.source.move_number}${ps.source.ply % 2 ? "." : "…"} ${ps.source.san} vs ${ps.source.opponent}` : "recommendation"}
+                </td>
+                <td className="small evalnum">{ps.puzzles.map((p) => p.rating).join(" → ")}</td>
+                <td>
+                  <Badge kind={ps.solved === ps.puzzles.length ? "ok" : ""}>
+                    {ps.solved}/{ps.puzzles.length}
+                  </Badge>
+                </td>
+                <td>
+                  <Link to={`/puzzles/${ps.set_id}`}>{ps.puzzles.some((p) => p.status === "open") ? "Solve" : "Review"}</Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
       <h2>Your exercises</h2>
       <ErrorBox error={exercises.error} />

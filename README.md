@@ -97,6 +97,20 @@ LLM_MODEL=claude-opus-5-5
 curl -X POST localhost:8000/api/v1/students/<id>/coaching/lessons
 ```
 
+With Docker, `docker compose` reads the same `.env` and passes the `LLM_*` and `ANTHROPIC_API_KEY` values to the backend. After changing them, run `docker compose up -d backend`. In the app, the student's **Exercises → Get a recommendation** then shows "Written by <model>" instead of "template". Keep the key only in `.env`, which is git-ignored and excluded from the Docker image.
+
+## Lichess puzzles
+
+Students get four puzzles of a mistake's kind from the [Lichess puzzle database](https://database.lichess.org/#puzzles) (CC0), via the Hugging Face dataset [`Lichess/chess-puzzles`](https://huggingface.co/datasets/Lichess/chess-puzzles). The puzzles get harder each time, starting from the student's puzzle rating for that skill. Load the library once (and again whenever you want the monthly update):
+
+```bash
+python -m chesscoach.puzzles.load --hf                  # downloads ~885 MB, keeps a balanced slice
+docker compose run --rm backend python -m chesscoach.puzzles.load --hf   # the same, into the Docker database
+python -m chesscoach.puzzles.load lichess_db_puzzle.csv  # or local .parquet/.csv files
+```
+
+It keeps reliable puzzles only (`RatingDeviation` ≤ 90, played enough, well liked), at most 150 per theme and 100-point rating band. Run with `--help` to change the filters. Re-running is safe. The skill → theme mapping is in `config/puzzle_themes.yaml`.
+
 ## Running the analysis worker locally
 
 Without Docker, set `STOCKFISH_PATH` in `.env` and run:

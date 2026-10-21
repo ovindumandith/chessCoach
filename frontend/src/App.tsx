@@ -6,6 +6,7 @@ import { ExercisePlay } from "./pages/ExercisePlay";
 import { GameViewer } from "./pages/GameViewer";
 import { Login } from "./pages/Login";
 import { Mistakes } from "./pages/Mistakes";
+import { PuzzleSetPage } from "./pages/PuzzleSetPage";
 import { StudentDetail } from "./pages/StudentDetail";
 import { StudentHome } from "./pages/StudentHome";
 import { Students } from "./pages/Students";
@@ -41,6 +42,7 @@ export function App() {
         {!isStudent && <Route path="/mistakes" element={<Mistakes />} />}
         <Route path="/games/:id" element={<GameViewer />} />
         <Route path="/exercises/:id" element={<ExercisePlay />} />
+        <Route path="/puzzles/:setId" element={<PuzzleSetPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
