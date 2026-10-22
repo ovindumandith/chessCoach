@@ -103,7 +103,9 @@ function GameCard({
           {g.played_at ?? "no date"} · {g.result} · you played {g.student_color}
         </span>
         <span className="spacer" />
-        {n === 0 ? (
+        {g.pending ? (
+          <Badge kind="warn">deeper check running</Badge>
+        ) : n === 0 ? (
           <Badge kind="ok">no mistakes</Badge>
         ) : (
           <Badge kind={g.acknowledged === n ? "ok" : "warn"}>
@@ -111,6 +113,12 @@ function GameCard({
           </Badge>
         )}
       </header>
+      {g.pending && (
+        <p className="muted small" data-testid="mistakes-pending">
+          Stockfish is re-checking the critical moves of this game more deeply. Its mistakes appear here when that
+          finishes.
+        </p>
+      )}
       {n > 0 && (
         <ol className="mistake-list">
           {g.mistakes.map((m) => (

@@ -99,6 +99,24 @@ curl -X POST localhost:8000/api/v1/students/<id>/coaching/lessons
 
 With Docker, `docker compose` reads the same `.env` and passes the `LLM_*` and `ANTHROPIC_API_KEY` values to the backend. After changing them, run `docker compose up -d backend`. In the app, the student's **Exercises → Get a recommendation** then shows "Written by <model>" instead of "template". Keep the key only in `.env`, which is git-ignored and excluded from the Docker image.
 
+## Chess LLM (AI improvement plans)
+
+In the student's **Chess LLM** tab, **Get LLM recommendation** sends all their fully analyzed games to the configured LLM. It needs at least 5. What's sent: moves, every mistake with Stockfish's evaluations, better moves and reasons, recurring patterns and the skill profile. The LLM returns a detailed improvement plan. The plan is checked against the analysis (cited mistakes must exist, and mentioned moves must come from the games or Stockfish's lines) and stored, and every past plan stays available. Without an LLM, or if its answer fails the checks twice, a clearly labelled template plan is used instead.
+
+Set the model in `.env` (never commit it), for example an OpenAI-compatible gateway:
+
+```bash
+LLM_ENABLED=true
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://openrouter.ai/api/v1      # your provider's OpenAI-compatible base URL
+LLM_API_KEY=<your key>
+LLM_MODEL=openai/gpt-6.1-sol
+# LLM_PLAN_MODEL=...                            # optional: a different model just for plans
+# LLM_MAX_TOKENS_FIELD=max_completion_tokens   # when calling api.openai.com directly
+```
+
+Then run `docker compose up -d backend`. The chat template (system prompt) is `prompts/improvement_plan_v1.txt`. If you change its rules, save it as `improvement_plan_v2.txt` and bump `PROMPT_VERSION` in `coaching/plan.py`, so stored plans stay reproducible. If a plan comes back as a template, the student's plan shows why, and the coach can see the provider's error message under the plan's validation errors.
+
 ## Lichess puzzles
 
 Students get four puzzles of a mistake's kind from the [Lichess puzzle database](https://database.lichess.org/#puzzles) (CC0), via the Hugging Face dataset [`Lichess/chess-puzzles`](https://huggingface.co/datasets/Lichess/chess-puzzles). The puzzles get harder each time, starting from the student's puzzle rating for that skill. Load the library once (and again whenever you want the monthly update):

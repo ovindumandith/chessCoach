@@ -156,6 +156,38 @@ def test_openai_compatible_truncation_and_client_errors():
         openai(lambda r: httpx.Response(400)).generate(system="S", user="U", schema=SCHEMA)
 
 
+def test_openai_compatible_token_field_and_error_message():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            404, json={"error": {"message": "The model `openai/gpt-6.1-sol` does not exist"}}
+        )
+
+    provider = openai(handler, llm_max_tokens_field="max_completion_tokens")
+    with pytest.raises(LLMError, match="404: The model `openai/gpt-6.1-sol` does not exist"):
+        provider.generate(system="S", user="U", schema=SCHEMA)
+    assert "max_completion_tokens" in seen["body"] and "max_tokens" not in seen["body"]
+
+
+def test_plan_provider_uses_the_plan_model_and_budget():
+    from chesscoach.coaching.plan import plan_provider
+
+    base = dict(
+        llm_enabled=True,
+        llm_provider="openai_compatible",
+        llm_base_url="https://llm.example/v1",
+        llm_model="general-model",
+    )
+    assert plan_provider(Settings(**base)).model == "general-model"
+    p = plan_provider(
+        Settings(**base, llm_plan_model="openai/gpt-6.1-sol", llm_plan_max_tokens=9000)
+    )
+    assert p.model == "openai/gpt-6.1-sol" and p.max_tokens == 9000
+    assert plan_provider(Settings()) is None
+
+
 def test_openai_compatible_requires_base_url():
     with pytest.raises(ValueError):
         OpenAICompatibleProvider(Settings(llm_enabled=True, llm_provider="openai_compatible"))

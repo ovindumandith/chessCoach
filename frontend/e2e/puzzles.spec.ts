@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { Chess } from "chess.js";
 import { fileURLToPath } from "node:url";
 
-import { drag, newStudent, signIn, uploadAndAnalyze } from "./helpers";
+import { drag, newStudent, signIn, uploadAndAnalyze, waitForAnalyzed } from "./helpers";
 
 // Lichess puzzles for a mistake, getting harder, against the real library loaded with
 // `python -m chesscoach.puzzles.load`. Real puzzles are chosen from the live library, so
@@ -30,9 +30,7 @@ test("four puzzles per mistake, each harder, solved on the board", async ({ page
   });
   await signIn(page, student);
   await uploadAndAnalyze(page, PGN, 3);
-  await expect(page.locator("tbody tr").filter({ hasText: /analyzed|deeper check/ })).toHaveCount(3, {
-    timeout: 150_000,
-  });
+  await waitForAnalyzed(page, 3, 150_000);
 
   // The missed mate 4.Qe2 vs Alice -> "Puzzles like this".
   const alice = page.getByTestId("game-mistakes").filter({ has: page.getByRole("heading", { name: /Alice/ }) });

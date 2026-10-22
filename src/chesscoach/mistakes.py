@@ -34,6 +34,9 @@ from chesscoach.db.models import (
 from chesscoach.db.types import utcnow
 
 READY = ("analyzed", "deepening")
+# Findings are derived only once the last analysis pass is done: a game whose deeper check
+# is still running has none yet, which must not read as "no mistakes".
+PENDING = "deepening"
 RESOLVED = (MappingStatus.MAPPED, MappingStatus.CONFIRMED)
 
 
@@ -124,6 +127,7 @@ def student_mistakes(
                 "played_at": game.played_at.isoformat() if game.played_at else None,
                 "mistakes": mistakes,
                 "acknowledged": sum(1 for m in mistakes if m["acknowledged_at"]),
+                "pending": states.get(game.id) == PENDING,
             }
         )
     return {"total_games": len(ready), "limit": limit, "offset": offset, "games": out}

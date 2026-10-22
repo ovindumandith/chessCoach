@@ -72,3 +72,11 @@ export async function drag(page: Page, from: string, to: string) {
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 12 });
   await page.mouse.up();
 }
+
+/** Wait until `games` rows of the games list are analyzed. ("not analyzed" contains the
+ * word "analyzed", so it is excluded explicitly; a plain regex passes too early.) */
+export async function waitForAnalyzed(page: Page, games: number, timeout = 150_000) {
+  await expect(
+    page.locator("tbody tr").filter({ hasText: /analyzed|deeper check/ }).filter({ hasNotText: "not analyzed" }),
+  ).toHaveCount(games, { timeout });
+}

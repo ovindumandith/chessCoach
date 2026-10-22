@@ -30,6 +30,7 @@ from chesscoach.db.models import (
     Exercise,
     ExerciseAttempt,
     Game,
+    ImprovementPlan,
     LearningPlan,
     MistakeAcknowledgement,
     MoveAnalysis,
@@ -110,6 +111,10 @@ def delete_student(
     )
     run(
         "profile_snapshots", delete(ProfileSnapshot).where(ProfileSnapshot.student_id == student_id)
+    )
+    run(
+        "improvement_plans",
+        delete(ImprovementPlan).where(ImprovementPlan.student_id == student_id),
     )
     run(
         "puzzle_assignments",

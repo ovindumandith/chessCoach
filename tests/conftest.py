@@ -5,6 +5,11 @@ from pathlib import Path
 # Configure a safe test environment before any chesscoach import reads settings.
 os.environ["APP_ENV"] = "test"
 os.environ["DATABASE_URL"] = "sqlite://"
+# Never call a real LLM from tests, even when .env holds a key (environment variables take
+# precedence over .env): tests use mock providers, and a live call would cost money.
+os.environ["LLM_ENABLED"] = "false"
+os.environ["LLM_API_KEY"] = ""
+os.environ["ANTHROPIC_API_KEY"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -12,7 +17,18 @@ from sqlalchemy import select  # noqa: E402
 from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
-from chesscoach.core.config import get_settings  # noqa: E402
+from chesscoach.core.config import Settings, get_settings  # noqa: E402
+
+# Tests never read the developer's .env (keys, models, URLs): only defaults and what each
+# test sets explicitly. The one exception is the local Stockfish path, so the optional
+# engine tests (@pytest.mark.engine) still run where Stockfish is installed.
+if "STOCKFISH_PATH" not in os.environ:
+    from dotenv import dotenv_values
+
+    _stockfish = dotenv_values(Path(__file__).parents[1] / ".env").get("STOCKFISH_PATH")
+    if _stockfish:
+        os.environ["STOCKFISH_PATH"] = _stockfish
+Settings.model_config["env_file"] = None
 from chesscoach.db.enums import AccessLevel, UserRole  # noqa: E402
 from chesscoach.db.models import Base, Game, StudentAccess, User  # noqa: E402
 from chesscoach.db.session import get_db, make_engine  # noqa: E402

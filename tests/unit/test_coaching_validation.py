@@ -159,6 +159,18 @@ def test_fallback_lesson_always_validates():
     assert "no person has checked them" in lesson.uncertainty
 
 
+def test_strict_schema_keeps_fields_named_title_or_default():
+    """Regression: field names "title"/"default" were stripped like schema annotations, so
+    the model was told not to send them and every plan failed with "title: Field required"."""
+    from chesscoach.coaching.plan import response_schema
+
+    schema = response_schema()
+    assert "title" in schema["properties"] and "title" in schema["required"]
+    weakness = schema["properties"]["weaknesses"]["items"]
+    assert "title" in weakness["properties"] and "title" in weakness["required"]
+    assert "title" not in schema["properties"]["title"]  # annotations still removed
+
+
 def test_strict_schema_is_closed_and_ref_free():
     schema = strict_json_schema(CoachingResponse)
     text = str(schema)

@@ -105,7 +105,17 @@ def strict_json_schema(model: type[BaseModel]) -> dict:
         if isinstance(node, dict):
             if "$ref" in node:
                 return resolve(copy.deepcopy(defs[node["$ref"].split("/")[-1]]))
-            node = {k: resolve(v) for k, v in node.items() if k not in ("title", "default")}
+            # Drop the "title"/"default" annotations of a schema node, but never a PROPERTY
+            # that happens to be called "title": inside "properties" the keys are field names.
+            node = {
+                k: (
+                    {name: resolve(sub) for name, sub in v.items()}
+                    if k == "properties"
+                    else resolve(v)
+                )
+                for k, v in node.items()
+                if k not in ("title", "default")
+            }
             if node.get("type") == "object" and "properties" in node:
                 node["required"] = list(node["properties"])
                 node["additionalProperties"] = False

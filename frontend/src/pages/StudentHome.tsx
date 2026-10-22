@@ -5,6 +5,7 @@ import type { Game, Page } from "../api";
 import { useAuth } from "../auth";
 import { Empty } from "../components/ui";
 import { useLoad } from "../hooks";
+import { ChessLlmTab } from "./student/ChessLlmTab";
 import { ExercisesTab } from "./student/ExercisesTab";
 import { GamesTab } from "./student/GamesTab";
 import { ProfileTab } from "./student/ProfileTab";
@@ -16,6 +17,7 @@ const TABS = [
   ["games", "My games"],
   ["mistakes", "My mistakes"],
   ["exercises", "Exercises"],
+  ["llm", "Chess LLM"],
   ["profile", "My profile"],
   ["progress", "Progress"],
 ] as const;
@@ -79,6 +81,7 @@ function Training({ studentId: id }: { studentId: string }) {
         ))}
       </nav>
       {tab === "exercises" && <ExercisesTab studentId={id} />}
+      {tab === "llm" && <ChessLlmTab studentId={id} />}
       {tab === "mistakes" && <MistakesTab studentId={id} viewer="student" />}
       {tab === "profile" && <ProfileTab studentId={id} />}
       {tab === "progress" && <ProgressTab studentId={id} />}

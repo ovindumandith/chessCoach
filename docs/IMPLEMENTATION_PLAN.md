@@ -411,6 +411,49 @@ Status key: ✅ done · 🚧 in progress · ⏳ not started
     - **502 after rebuilds:** nginx resolved the backend once at startup, so recreating the backend alone gave 502s until nginx restarted. It now re-resolves through Docker's DNS.
     - **Solution skipped:** the set page jumped to the next puzzle before showing the solution.
 
+- **Chess LLM: AI improvement plans** (`coaching/plan.py`, `prompts/improvement_plan_v1.txt`, migration `c94f60705149`):
+  - **Who and when:** the student's **Chess LLM** tab has a "Get LLM recommendation" button. It's enabled after at least `PLAN_MIN_ANALYZED_GAMES` (default 5) **fully** analyzed games. Games still in their deeper check have no findings yet, so they don't count and aren't sent. Only the student's own login can request a plan (`require_own_student_record`). The coach reads every plan in the student's Recommendations tab. The first visit shows nothing but the button and the game count.
+  - **Context** (`plan-context-v1`): every fully analyzed game, newest first (up to 60), with:
+    - date, colour, opponent, result from the student's side, ECO and time control
+    - the full SAN move list for the 20 most recent games
+    - every mistake: verdict, evaluation before and after from the student's side ("mate in 1 for you"), Stockfish's better move and line, the board-derived reason, kinds (skill, subskill, motif), whether acknowledged, and how often the same kind appeared earlier
+    - the skill profile, puzzle ratings per skill, totals, and the allowed skill codes and Lichess themes
+
+    If the context grows beyond about 120k characters, move lists and then whole games are dropped, oldest first, and the plan records how many games were included.
+  - **Response:** strict JSON (`ImprovementPlanResponse`) with:
+    - title and summary
+    - strengths
+    - weaknesses, each with evidence `{game_id, ply}`
+    - plan steps (period, focus, activities, goal)
+    - routine, puzzle themes, study topics, habits, milestones
+    - uncertainty
+  - **Checks** (`validate_plan`, engine-grounded):
+    - evidence must be a supplied mistake
+    - skill codes must be in the taxonomy
+    - puzzle themes must be Lichess keys
+    - at least one weakness when there are mistakes, and at least two plan steps
+    - no move may be mentioned unless it appears in the supplied games or engine lines (a SAN scan for piece moves, captures and castling)
+
+    A failed check gets one retry with the reasons. After that, or on a provider error, a deterministic template plan (`plan-template-v1`) is built from the same evidence and labelled as such.
+  - **Storage:** every plan is kept (`improvement_plans`) with the exact context sent, its hash, the response, model and provider, `prompt_version`, validation status and errors (including the provider's error message, e.g. a wrong model id), token use and latency. The UI's "What was sent to the AI" shows the context. Plans are deleted with the student.
+  - **Configuration:**
+    - any OpenAI-compatible endpoint (`LLM_PROVIDER=openai_compatible`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`, e.g. `openai/gpt-6.1-sol`) or Anthropic
+    - optional `LLM_PLAN_MODEL`, `LLM_PLAN_MAX_TOKENS` (24000) and `LLM_PLAN_TIMEOUT_SECONDS` (240)
+    - `LLM_MAX_TOKENS_FIELD=max_completion_tokens` for api.openai.com
+    - the nginx proxy timeout is 300 s, because plans are generated within the request
+  - **Fixed along the way:** My mistakes showed a game still in its deeper check as "no mistakes". It now says the deeper check is running. The e2e wait for analysis also matched "not analyzed" (it contains "analyzed") and could pass before analysis began; `waitForAnalyzed` in `e2e/helpers.ts` excludes it.
+  - **Designed for young players** (`improvement_plan_v2`, `plan-template-v2`, `plan-context-v2`). Most important first:
+    1. **Your mission:** the top weakness, with a friendly name and icon (`frontend/src/kidNames.ts`) and a one-sentence reason. It has a **mini board from the child's own game**: red arrow for the move played, green for Stockfish's move, flipping through the cited examples. Two big buttons: *Play 4 puzzles* (a Lichess set for that skill) and *See it in my game*.
+    2. **Also watch out for:** at most two more weaknesses, one sentence each.
+    3. **Training path:** weekly stepping stones. Tap one to see its to-do list; ticks are kept in the browser.
+    4. **Golden rules** (habits, at most 3) and **Superpowers** (strengths).
+    5. **More for parents and coaches** (folded): every finding with its taxonomy name, routine, study topics, milestones, puzzle themes, uncertainty, model and validation, tokens, and what was sent.
+
+    The request card shows a pawn per analyzed game and a "your coach is studying your games" animation while the plan is written (it respects reduced motion). The v2 prompt asks for short sentences a child understands, at most 3 weaknesses, 3–4 weekly steps and 3 golden rules. Plans return `positions` (the board before each cited mistake, with the played and best moves as UCI), built at read time from the stored game and context, so older plans get boards too. Allowed skills are sent as explicit `{skill_code, subskill_code}` pairs, and a dotted `"skill.subskill"` in `skill_code` is accepted when valid. Models did that, which cost a retry per plan.
+  - **Found with the first real OpenRouter call:**
+    - **Missing titles.** `strict_json_schema` stripped *properties* named `title` (or `default`) along with the schema annotations of that name. So the model was told not to send the plan's titles, and every answer failed with "title: Field required". Fixed, with a regression test.
+    - **Tests reading `.env`.** The test suite read `.env`, so with a real key configured it called the live LLM. Tests now force `LLM_ENABLED=false`, blank all keys and never read `.env`, except `STOCKFISH_PATH` for the optional engine tests.
+
 ### Known limitations (MVP)
 
 - Statistical claims need a real cohort: the spec's 10–30 students, coach-annotated gold labels, and blinded ratings. The tooling exists, the data doesn't yet.

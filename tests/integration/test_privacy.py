@@ -55,6 +55,19 @@ def test_delete_student_removes_everything_derived(client, db, storage_dir, make
     g = next(g for g in first["games"] if g["mistakes"])
     ack = f"{API}/games/{g['game_id']}/mistakes/{g['mistakes'][0]['ply']}/acknowledgement"
     assert client.put(ack, headers=victim_h).status_code == 200
+    db.add(  # a stored improvement plan (needs 5 games through the API; stored directly here)
+        m.ImprovementPlan(
+            student_id=vid,
+            model_provider="template",
+            model_id="plan-template-v1",
+            prompt_version="improvement_plan_v1",
+            context_hash="x" * 64,
+            games_included=3,
+            games_total=3,
+            validation_status=m.ValidationStatus.FALLBACK,
+        )
+    )
+    db.commit()
     assert count(db, m.WeaknessObservation, student_id=vid) > 0
     assert count(db, m.ProfileSnapshot, student_id=vid) > 0
     keeper_games_before = count(db, m.Game, student_id=kid)
@@ -67,6 +80,8 @@ def test_delete_student_removes_everything_derived(client, db, storage_dir, make
     deleted = resp.json()["deleted"]
     assert deleted["games"] == 3 and deleted["exercises"] >= 1 and deleted["coaching_sessions"] == 1
     assert deleted["mistake_acknowledgements"] == 1
+    assert deleted["improvement_plans"] == 1
+    assert count(db, m.ImprovementPlan, student_id=vid) == 0
     assert count(db, m.MistakeAcknowledgement, student_id=vid) == 0
     assert deleted["student_logins_anonymised"] == 1
 

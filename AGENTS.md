@@ -24,7 +24,7 @@ Read `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md` before you change 
 - `analysis/` runs Stockfish and computes move features. It never writes coaching text or profiles.
 - `classification/` turns stored engine evidence into observations (findings) and skill opportunities, plus admin-only research labelling. It reads analysis rows only and never calls the engine.
 - `profiling/` aggregates observations into versioned snapshots. It never treats unreviewed candidates as ground truth.
-- `coaching/` retrieves evidence, calls the LLM and validates output. Only this module talks to the LLM.
+- `coaching/` retrieves evidence, calls the LLM and validates output. Only this module talks to the LLM. It covers lessons (`service.py`) and the Chess LLM improvement plans (`plan.py`). Plans use only fully analyzed games, may cite only supplied mistakes and mention only supplied moves, and are stored with the exact context sent.
 - `exercises/` handles exercise selection and attempts.
 - `puzzles/` imports Lichess puzzles (CC0) and picks sets of rising rating per mistake; it tracks a puzzle rating per skill. Solutions come from the dataset, and legality comes from python-chess. It never calls the engine or the LLM. Puzzle results never feed the weakness profile.
 - `mistakes.py` groups a student's findings into mistakes per game and stores the student's acknowledgements. It's display and monitoring only, and never changes findings or profiles.

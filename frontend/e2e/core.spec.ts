@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
-import { drag, newCoach, signIn, signOut, uploadAndAnalyze } from "./helpers";
+import { drag, newCoach, signIn, signOut, uploadAndAnalyze, waitForAnalyzed } from "./helpers";
 
 // One continuous journey through the real UI, real API and real worker:
 // the coach onboards a student; the student adds and analyzes games, acknowledges a mistake,
@@ -42,9 +42,7 @@ test("student analyzes, acknowledges and trains on their own games; the coach mo
   await expect(page.getByRole("list", { name: "Getting started" })).toBeVisible();
   await uploadAndAnalyze(page, PGN, 2);
   await expect(page.getByText(/Stockfish is working on/)).toBeVisible();
-  await expect(page.locator("tbody tr").filter({ hasText: /analyzed|deeper check/ })).toHaveCount(2, {
-    timeout: 150_000,
-  });
+  await waitForAnalyzed(page, 2, 150_000);
 
   // --- Student: step through a game; N walks the key moments of both sides --------------
   await page.getByRole("row", { name: /Opponent One/ }).getByRole("link", { name: "View" }).click();

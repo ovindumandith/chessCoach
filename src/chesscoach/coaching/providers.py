@@ -136,6 +136,7 @@ class OpenAICompatibleProvider:
             raise ValueError("LLM_BASE_URL is required for the openai_compatible provider")
         self.model = settings.llm_model
         self.max_tokens = settings.llm_max_tokens
+        self.max_tokens_field = settings.llm_max_tokens_field
         self.max_retries = settings.llm_max_retries
         self.url = settings.llm_base_url.rstrip("/") + "/chat/completions"
         headers = (
@@ -148,7 +149,7 @@ class OpenAICompatibleProvider:
     def generate(self, *, system: str, user: str, schema: dict) -> LLMResult:
         body = {
             "model": self.model,
-            "max_tokens": self.max_tokens,
+            self.max_tokens_field: self.max_tokens,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "response_format": {
                 "type": "json_schema",
@@ -166,12 +167,13 @@ class OpenAICompatibleProvider:
                 continue
             if response.status_code == 429 or response.status_code >= 500:
                 if attempt == self.max_retries:
-                    raise LLMError(f"API error {response.status_code}")
+                    raise LLMError(f"API error {response.status_code}: {_error_text(response)}")
                 time.sleep(min(2**attempt, 8))
                 continue
             break
         if response.status_code >= 400:
-            raise LLMError(f"API error {response.status_code}")
+            # e.g. a wrong model id or key: keep the provider's message, it says what to fix.
+            raise LLMError(f"API error {response.status_code}: {_error_text(response)}")
         payload = response.json()
         try:
             choice = payload["choices"][0]
@@ -191,6 +193,16 @@ class OpenAICompatibleProvider:
             },
             latency_ms=int((time.monotonic() - started) * 1000),
         )
+
+
+def _error_text(response: httpx.Response, limit: int = 300) -> str:
+    """The provider's error message (never contains our key), shortened."""
+    try:
+        err = response.json().get("error", {})
+        text = err.get("message") if isinstance(err, dict) else str(err)
+    except ValueError:
+        text = response.text
+    return (text or "").strip()[:limit]
 
 
 # --------------------------------------------------------------------------- testing

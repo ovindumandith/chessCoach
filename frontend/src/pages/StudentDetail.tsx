@@ -4,6 +4,7 @@ import type { Student } from "../api";
 import { ErrorBox, Loading } from "../components/ui";
 import { useLoad } from "../hooks";
 import { AccountTab } from "./student/AccountTab";
+import { CoachPlans } from "./student/ChessLlmTab";
 import { CoachingTab } from "./student/CoachingTab";
 import { GamesTab } from "./student/GamesTab";
 import { MistakesTab } from "./student/MistakesTab";
@@ -50,7 +51,12 @@ export function StudentDetail() {
           {tab === "games" && <GamesTab studentId={id} viewer="coach" />}
           {tab === "mistakes" && <MistakesTab studentId={id} viewer="coach" />}
           {tab === "profile" && <ProfileTab studentId={id} />}
-          {tab === "coaching" && <CoachingTab studentId={id} canGenerate={false} />}
+          {tab === "coaching" && (
+            <>
+              <CoachPlans studentId={id} />
+              <CoachingTab studentId={id} canGenerate={false} />
+            </>
+          )}
           {tab === "progress" && <ProgressTab studentId={id} />}
           {tab === "account" && <AccountTab studentId={id} />}
         </>

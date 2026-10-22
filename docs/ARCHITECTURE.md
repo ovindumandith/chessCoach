@@ -45,7 +45,7 @@ src/chesscoach/
   analysis/     engine wrapper, score normalization, features, worker (Phase 3)
   classification/ taxonomy, motif detectors, classifier rules, admin-only research labelling (Phase 4)
   profiling/    aggregation into versioned profiles (Phase 5)
-  coaching/     provider adapters, retrieval, prompts, validation (Phase 6)
+  coaching/     provider adapters, retrieval, prompts, validation (Phase 6); plan.py: Chess LLM improvement plans
   exercises/    selection and attempts (Phase 7)
   puzzles/      Lichess puzzle import, rising-difficulty sets per mistake, puzzle ratings
   evaluation/   baselines and metrics (Phase 9)

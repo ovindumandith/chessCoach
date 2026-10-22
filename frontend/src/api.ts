@@ -212,6 +212,8 @@ export interface GameMistakes {
   played_at: string | null;
   mistakes: Mistake[];
   acknowledged: number;
+  /** The deeper check is still running: its mistakes are not known yet. */
+  pending: boolean;
 }
 export interface MistakesPage {
   total_games: number;
@@ -390,4 +392,64 @@ export interface PuzzleSet {
 export interface PuzzleSetList {
   library_size: number;
   sets: PuzzleSet[];
+}
+
+// ----------------------------------------------------------------------------- improvement plans
+export interface ImprovementPlanBody {
+  title: string;
+  summary: string;
+  strengths: string[];
+  weaknesses: {
+    skill_code: string;
+    subskill_code: string | null;
+    title: string;
+    explanation: string;
+    evidence: { game_id: string; ply: number }[];
+  }[];
+  plan: { period: string; focus: string; activities: string[]; goal: string }[];
+  training_routine: string[];
+  puzzle_themes: string[];
+  study_topics: string[];
+  habits: string[];
+  milestones: string[];
+  uncertainty: string;
+}
+export interface ImprovementPlan {
+  id: string;
+  student_id: string;
+  created_at: string;
+  model_provider: string;
+  model_id: string;
+  prompt_version: string;
+  validation_status: "valid" | "fallback" | "invalid" | "pending";
+  validation_errors: string[];
+  games_included: number;
+  games_total: number;
+  token_usage: { input_tokens?: number; output_tokens?: number };
+  latency_ms: number | null;
+  plan: ImprovementPlanBody;
+  /** The board before each cited mistake, keyed "game_id:ply". */
+  positions: Record<string, PlanPosition>;
+  context?: unknown;
+}
+export interface PlanPosition {
+  fen: string;
+  played_san: string;
+  played_uci: string | null;
+  best_san: string | null;
+  best_uci: string | null;
+  move_number: number;
+  verdict: string | null;
+  opponent: string;
+  date: string | null;
+  you_played: "white" | "black";
+}
+export interface PlanOverview {
+  analyzed_games: number;
+  games_in_progress: number;
+  required_games: number;
+  eligible: boolean;
+  llm_enabled: boolean;
+  model: string | null;
+  plans: ImprovementPlan[];
 }

@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=120.0, gt=0)
     llm_max_retries: int = Field(default=2, ge=0)  # transport retries (429/5xx/network)
     llm_validation_retries: int = Field(default=1, ge=0)  # regenerate after failed checks
+    # OpenAI's own API wants `max_completion_tokens` for current models; most gateways
+    # (OpenRouter and others) accept `max_tokens`.
+    llm_max_tokens_field: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    # The improvement plan ("Chess LLM" tab) may use a different model; empty = llm_model.
+    llm_plan_model: str = ""
+    llm_plan_max_tokens: int = Field(default=24000, ge=2000)
+    llm_plan_timeout_seconds: float = Field(default=240.0, gt=0)  # a long plan takes a while
+    plan_min_analyzed_games: int = Field(default=5, ge=1)
 
     storage_dir: Path = Path("./data/uploads")
     pgn_max_upload_mb: int = Field(default=25, ge=1)

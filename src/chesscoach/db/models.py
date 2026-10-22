@@ -494,6 +494,40 @@ class ExerciseAttempt(Base):
     completed_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
 
 
+class ImprovementPlan(Base):
+    """A detailed improvement plan from the LLM (or the template), from all analyzed games.
+
+    Stores exactly what was sent (`context_json`) and returned, so every plan can be
+    reproduced and audited. Plans are never edited; each request adds a new row.
+    """
+
+    __tablename__ = "improvement_plans"
+
+    id: Mapped[uuid.UUID] = _pk()
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("students.id", ondelete="CASCADE"), index=True
+    )
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    model_provider: Mapped[str] = mapped_column(String(64))
+    model_id: Mapped[str] = mapped_column(String(128))
+    prompt_version: Mapped[str] = mapped_column(String(64))
+    context_hash: Mapped[str] = mapped_column(String(64))
+    games_included: Mapped[int] = mapped_column(Integer)
+    games_total: Mapped[int] = mapped_column(Integer)
+    context_json: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    response_json: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    validation_status: Mapped[ValidationStatus] = mapped_column(
+        str_enum(ValidationStatus, "validation_status")
+    )
+    validation_errors: Mapped[list[Any]] = mapped_column(default=list)
+    request_metadata: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    token_usage: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
 # --------------------------------------------------------------------------- puzzles
 
 
